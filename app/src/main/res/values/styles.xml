@@ -1,0 +1,14 @@
+<resources>
+    <style name="Theme.Versandhilfe" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:colorAccent">#7B4BFF</item>
+        <item name="android:windowBackground">#FAF8FF</item>
+    </style>
+    <style name="Theme.Versandhilfe.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#FAF8FF</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_parcel</item>
+        <item name="postSplashScreenTheme">@style/Theme.Versandhilfe</item>
+    </style>
+</resources>
