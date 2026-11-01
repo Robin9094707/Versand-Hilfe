@@ -22,7 +22,7 @@ object BackupCrypto {
         return try { SecretKeySpec(SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded, "AES") } finally { spec.clearPassword() }
     }
     fun encrypt(bundle: SecretBundle, password: String): String {
-        require(password.length >= 10) { "Bitte ein Backup-Passwort mit mindestens 10 Zeichen wählen." }
+        require(password.length >= 10 && password.isNotBlank()) { "Bitte ein Backup-Passwort mit mindestens 10 Zeichen wählen." }
         val salt = ByteArray(16).also(random::nextBytes)
         val iv = ByteArray(12).also(random::nextBytes)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")

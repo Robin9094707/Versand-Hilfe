@@ -48,12 +48,22 @@ class UiTest {
             val tree = android.provider.DocumentsContract.buildTreeDocumentUri("${context.packageName}.fixture", android.provider.DocumentsContract.getDocumentId(folder.uri))
             context.grantUriPermission(context.packageName, tree, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION or android.content.Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
             repo.useFolder(repo.inspect(tree), false)
+            repo.resetKeys()
+            repo.configureAssistant("Jessica", "sk-fake-ui-key", "ui-test-backup-passwort", true)
             repo.save(Parcel(number = 1, title = "Blaue Jeans", recipient = "Anna", location = "Flur · Regal links", carrier = Carrier.DHL, status = ParcelStatus.READY))
             repo.save(Parcel(number = 2, title = "Lieblingsjacke", recipient = "Sophie", carrier = Carrier.HERMES, status = ParcelStatus.SHIPPED))
         }
         val scenario = androidx.test.core.app.ActivityScenario.launch<MainActivity>(android.content.Intent(context, MainActivity::class.java))
         compose.onNodeWithText("Dein Versand").assertIsDisplayed()
         screenshot("04-app-uebersicht")
+        compose.onNodeWithText("Pakethelfer").performClick()
+        compose.onNode(hasSetTextAction()).performTextInput("Wie ist das Wetter heute?")
+        compose.onNodeWithContentDescription("Frage senden").performClick()
+        compose.waitUntil(10000) { repo.assistant.value.messages.any { it.text == ParcelFacts.refusal } }
+        compose.onNodeWithText(ParcelFacts.refusal).assertIsDisplayed()
+        org.junit.Assert.assertEquals(0, repo.assistant.value.calls)
+        screenshot("06-pakethelfer")
+        compose.onNodeWithText("Pakete").performClick()
         compose.onNodeWithTag("parcel-list").performScrollToNode(hasText("Blaue Jeans"))
         compose.onNodeWithText("Blaue Jeans").performClick()
         compose.onNodeWithText("Versandlabel fehlt noch").assertIsDisplayed()
@@ -61,6 +71,7 @@ class UiTest {
         compose.onNodeWithContentDescription("Bearbeiten").performClick()
         compose.onNodeWithText("Paket bearbeiten").assertIsDisplayed()
         scenario.close()
+        kotlinx.coroutines.runBlocking { repo.resetKeys() }
         repo.prefs.edit().remove("folder").remove("folderName").commit()
     }
     @Test fun aiFieldsRequireReviewBeforeSaving() {

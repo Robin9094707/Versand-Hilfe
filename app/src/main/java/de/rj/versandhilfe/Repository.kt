@@ -101,6 +101,7 @@ class ParcelRepository(val context: Context) {
     suspend fun configureAssistant(name: String, apiKey: String?, password: String, enabled: Boolean) = withContext(Dispatchers.IO) {
         val vault = SecretVault(context)
         require(_assistant.value.encryptedKeys.isBlank() || vault.unlocked(_assistant.value)) { "Bitte zuerst das vorhandene Schlüsselbackup entsperren oder ausdrücklich zurücksetzen." }
+        apiKey?.takeIf { it.isNotBlank() }?.let { require(it.trim().matches(Regex("sk-[A-Za-z0-9_-]{5,509}"))) { "Das Format des OpenAI-Schlüssels ist ungültig. Bitte direkt aus dem OpenAI-Konto kopieren." } }
         val envelope = vault.envelope(password, openAiValue = apiKey?.trim()?.takeIf { it.isNotEmpty() })
         apiKey?.trim()?.takeIf { it.isNotBlank() }?.let { vault.openAi.save(it) }
         require(!enabled || vault.openAi.hasKey()) { "Bitte einen OpenAI-Schlüssel eintragen." }
@@ -111,6 +112,7 @@ class ParcelRepository(val context: Context) {
     suspend fun saveTrackingKey(key: String) = withContext(Dispatchers.IO) {
         val vault = SecretVault(context)
         require(_assistant.value.encryptedKeys.isBlank() || vault.unlocked(_assistant.value)) { "Bitte zuerst das Schlüsselbackup entsperren." }
+        require(key.length <= 512 && key.none { it.isWhitespace() }) { "Der TrackingMore-Schlüssel enthält ungültige Leerzeichen." }
         val envelope = vault.envelope(trackingValue = key)
         vault.tracking.save(key)
         vault.mark(envelope)

@@ -63,7 +63,7 @@ class ApiKeyStore(private val context: Context, private val namespace: String = 
         if (value.isBlank()) { prefs.edit().clear().apply(); return }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key())
-        val encrypted = cipher.doFinal(value.trim().toByteArray())
+        val encrypted = cipher.doFinal((if (namespace == "backup-password") value else value.trim()).toByteArray())
         prefs.edit().putString("value", Base64.encodeToString(cipher.iv, Base64.NO_WRAP) + ":" + Base64.encodeToString(encrypted, Base64.NO_WRAP)).apply()
     }
 }

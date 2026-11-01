@@ -68,8 +68,10 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
         if (working) return
         working = true
         scope.launch {
+            var attached: Attachment? = null
             try {
                 val attachment = repo.attach(uri, kind)
+                attached = attachment
                 parcel = parcel.copy(attachments = parcel.attachments + attachment)
                 if (kindName == "AUTO" && aiReady) {
                     val extraction = ParcelAi(repo).analyze(attachment)
@@ -81,7 +83,10 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
                     scan = result
                 }
                 if (camera) File(cameraPath).delete()
-            } catch (e: Exception) { onMessage(e.message ?: "Anhang konnte nicht gelesen werden") } finally { working = false }
+            } catch (e: Exception) {
+                onMessage(e.message ?: "Anhang konnte nicht gelesen werden")
+                attached?.let { a -> scan = runCatching { recognize(repo, a) }.getOrNull() }
+            } finally { working = false }
         }
     }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) add(uri) }
@@ -109,7 +114,7 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
         LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             item { InfoCard(Icons.Outlined.Inventory2, "${parcel.code} · Deine Paketnummer", "Schreib diese Nummer auf den Karton. So gehören Foto und Label immer eindeutig zusammen.", MaterialTheme.colorScheme.primaryContainer) }
             if (aiReady) item { FilledTonalButton(onClick = { kindName = "AUTO"; picker.launch(arrayOf("image/jpeg", "image/png", "image/webp", "application/pdf")) }, enabled = !working, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Icon(Icons.Outlined.AutoAwesome, null); Spacer(Modifier.width(10.dp)); Text("Foto / Screenshot automatisch ausfüllen") } }
-            if (parcel.aiSummary.isNotBlank() || parcel.aiEvidence.isNotEmpty()) item { AiReviewCard(parcel) { parcel = parcel.copy(aiReviewRequired = false) } }
+            if (parcel.aiReviewRequired || parcel.aiSummary.isNotBlank() || parcel.aiEvidence.isNotEmpty()) item { AiReviewCard(parcel) { parcel = parcel.copy(aiReviewRequired = false) } }
             item { SectionTitle("Was geht auf die Reise?", "Ein guter Name hilft beim Wiederfinden.") }
             item { EditField("Artikel / Paketname *", parcel.title, { parcel = parcel.copy(title = it) }, placeholder = "Zum Beispiel: Blaue Jeans · Größe 40") }
             item { ChoiceField("Verkaufsplattform", parcel.platform, listOf("Vinted", "Kleinanzeigen", "eBay", "Facebook", "Privat", "Andere")) { parcel = parcel.copy(platform = it) } }
@@ -132,7 +137,7 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
             items(parcel.attachments, key = { it.id }) { a ->
                 AttachmentRow(repo, a, onOpen = { viewer = a }, onScan = {
                     if (!working) { working = true; scope.launch { try {
-                        if (aiReady) parcel = applyExtraction(parcel, a, ParcelAi(repo).analyze(a)) else scan = recognize(repo, a)
+                        scan = recognize(repo, a)
                     } catch (e: Exception) { onMessage("Erkennung fehlgeschlagen: ${e.message}") } finally { working = false } } }
                 }, onRemove = { parcel = parcel.copy(attachments = parcel.attachments.filterNot { it.id == a.id }) })
             }
