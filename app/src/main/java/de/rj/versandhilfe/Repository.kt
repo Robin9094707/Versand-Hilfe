@@ -154,6 +154,7 @@ class ParcelRepository(val context: Context) {
         mutex.withLock {
             require(loadError.value == null) { "Bitte zuerst die Daten aus einer Sicherung wiederherstellen." }
             val previous = _parcels.value.find { it.id == parcel.id }
+            require(previous == null || previous.status != ParcelStatus.DELIVERED || parcel.status == ParcelStatus.DELIVERED || _parcels.value.none { it.id != parcel.id && it.status != ParcelStatus.DELIVERED && it.number == previous.number }) { "Diese Nummer wird inzwischen von einem offenen Paket verwendet. Bitte dieses alte Paket abgeschlossen lassen und bei Bedarf ein neues anlegen." }
             val allocated = if (previous == null) allocateParcelNumber(_parcels.value, _assistant.value.numberDigits, _assistant.value.nextPackageNumber) else previous.number
             val now = System.currentTimeMillis()
             val events = if (previous == null) listOf(ParcelEvent(at = now, text = "Paket angelegt")) else previous.events +
@@ -184,6 +185,7 @@ class ParcelRepository(val context: Context) {
     }
     suspend fun setStatus(ids: Set<String>, status: ParcelStatus, waitForBackup: Boolean = true) = withContext(Dispatchers.IO) {
         mutex.withLock {
+            require(status == ParcelStatus.DELIVERED || _parcels.value.filter { it.id in ids && it.status == ParcelStatus.DELIVERED }.all { old -> _parcels.value.none { it.id != old.id && it.status != ParcelStatus.DELIVERED && it.number == old.number } }) { "Diese Nummer gehört inzwischen zu einem offenen Paket. Bitte das alte Paket abgeschlossen lassen." }
             writeLocal(_parcels.value.map {
                 if (it.id in ids && it.status != status) it.copy(status = status, updatedAt = System.currentTimeMillis(), events = it.events + ParcelEvent(text = status.label)) else it
             })

@@ -11,6 +11,8 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material3.*
@@ -73,6 +75,15 @@ class ParcelAlarmReceiver : BroadcastReceiver() {
                 repo.load()
                 val p = repo.parcels.value.find { it.id == id }
                 if (!test && (p == null || !repo.assistant.value.reminders || !ParcelFacts.pending(p) || p.snoozedUntil > System.currentTimeMillis())) return@launch
+                if (intent.action == "SHIPPED" || intent.action == "SNOOZE") {
+                    if (!test && p != null) {
+                        if (intent.action == "SHIPPED") repo.setStatus(setOf(id), ParcelStatus.SHIPPED, false) else repo.snooze(id, 1)
+                    }
+                    context.getSystemService(NotificationManager::class.java).cancel(id.hashCode())
+                    AlarmSignals.current.value = null
+                    return@launch
+                }
+                if (test) repo.prefs.edit().putLong("lastTestAlarmAt", System.currentTimeMillis()).apply()
                 if (!test) {
                     repo.update(id, waitForBackup = false) { it.copy(lastReminderAt = System.currentTimeMillis(), snoozedUntil = 0) }
                     repo.parcels.value.find { it.id == id }?.let { ReminderScheduler(context).schedule(it, repo.assistant.value) }
@@ -89,11 +100,14 @@ class ParcelAlarmReceiver : BroadcastReceiver() {
         val open = PendingIntent.getActivity(context, 0, Intent(context, ParcelAlarmActivity::class.java)
             .setData(Uri.parse("versandhilfe://alarm/$id")).putExtra("parcelId", id).putExtra("test", test)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        fun action(which: String): PendingIntent = PendingIntent.getBroadcast(context, 0, Intent(context, ParcelAlarmReceiver::class.java)
+            .setAction(which).setData(Uri.parse("versandhilfe://alarm-action/$id/$which")).putExtra("parcelId", id).putExtra("test", test), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = NotificationCompat.Builder(context, REMINDER_CHANNEL).setSmallIcon(de.rj.versandhilfe.R.drawable.ic_parcel)
             .setContentTitle(if (test) "Dein Testalarm" else "${p?.code}: Bitte ans Abgeben denken")
             .setContentText(if (test) "So sieht deine leise Paket-Erinnerung aus." else "${p?.title} · ${p?.location?.ifBlank { "Lagerplatz nicht eingetragen" }}")
             .setStyle(NotificationCompat.BigTextStyle().bigText(if (test) "Öffne den Hinweis, um die Vollbild-Erinnerung und die Schlummerknöpfe auszuprobieren." else "${p?.title}\nFür ${p?.recipient?.ifBlank { "Empfänger noch offen" }}\n${p?.dueDate?.takeIf { !p.aiReviewRequired && it.isNotBlank() }?.let { "Abgeben bis $it" } ?: "Auch ohne Frist: Bitte gib dein Paket rechtzeitig ab."}"))
             .setCategory(NotificationCompat.CATEGORY_ALARM).setPriority(NotificationCompat.PRIORITY_HIGH)
+            .addAction(0, "Abgegeben", action("SHIPPED")).addAction(0, "1 Std. später", action("SNOOZE")).addAction(0, "Mehr …", open)
             .setContentIntent(open).setAutoCancel(true).setGroup("parcel-reminders").setOnlyAlertOnce(false)
         if (fullscreen && ReminderScheduler(context).fullScreenAllowed()) notification.setFullScreenIntent(open, true)
         NotificationManagerCompat.from(context).notify(id.hashCode(), notification.build())
@@ -103,7 +117,8 @@ class ParcelAlarmActivity : ComponentActivity() {
     private val notice = mutableStateOf(AlarmNotice("test", true))
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setShowWhenLocked(true); setTurnScreenOn(true)
+        if (Build.VERSION.SDK_INT >= 27) { setShowWhenLocked(true); setTurnScreenOn(true) }
+        else @Suppress("DEPRECATION") window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
         accept(intent)
         setContent { VersandTheme { AlarmPage((application as ShippingApp).repository, notice.value) { finish() } } }
     }
@@ -132,8 +147,8 @@ class ParcelAlarmActivity : ComponentActivity() {
         }
     }
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-        Column(Modifier.fillMaxSize().safeDrawingPadding().padding(28.dp), verticalArrangement = Arrangement.spacedBy(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Spacer(Modifier.weight(.5f)); Icon(Icons.Outlined.Inventory2, null, Modifier.size(72.dp), tint = MaterialTheme.colorScheme.primary)
+        Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(28.dp), verticalArrangement = Arrangement.spacedBy(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Spacer(Modifier.height(24.dp)); Icon(Icons.Outlined.Inventory2, null, Modifier.size(72.dp), tint = MaterialTheme.colorScheme.primary)
             Text(if (notice.test) "So erinnern wir dich" else "Bitte dein Paket abgeben", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
             Text(if (notice.test) "Das ist nur ein Test. Deine Pakete werden nicht verändert." else p?.let { "${it.code} · ${it.title}\nFür ${it.recipient}\nLiegt bei: ${it.location.ifBlank { "noch nicht eingetragen" }}" } ?: "Dieses Paket ist nicht mehr offen.", style = MaterialTheme.typography.bodyLarge)
             if (p?.dueDate?.isNotBlank() == true && !p.aiReviewRequired) Text("Abgeben bis ${p.dueDate}", style = MaterialTheme.typography.titleLarge)
@@ -141,7 +156,7 @@ class ParcelAlarmActivity : ComponentActivity() {
             Text("Später erinnern", style = MaterialTheme.typography.titleMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { (1..3).forEach { h -> OutlinedButton(onClick = { act(h) }, enabled = !busy, modifier = Modifier.weight(1f)) { Text("$h Std.") } } }
             if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
-            TextButton(onClick = onDone, enabled = !busy) { Text("Schließen") }; Spacer(Modifier.weight(1f))
+            TextButton(onClick = onDone, enabled = !busy) { Text("Schließen") }; Spacer(Modifier.height(24.dp))
         }
     }
 }

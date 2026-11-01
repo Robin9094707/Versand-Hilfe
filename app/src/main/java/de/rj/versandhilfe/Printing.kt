@@ -143,7 +143,7 @@ fun printPdf(context: Context, file: File, name: String) {
         item { Button(onClick = { prepare(false) }, enabled = selected.isNotEmpty() && !busy, modifier = Modifier.fillMaxWidth()) { Text("${selected.size} QR-Karten drucken") }; OutlinedButton(onClick = { prepare(true) }, enabled = selected.isNotEmpty() && !busy, modifier = Modifier.fillMaxWidth()) { Text("Als PDF speichern") } }
     }
     if (busy) RecognitionProgress(false)
-    if (choices.any { it.second.size > 1 } && !busy) FlowWindow("Welcher QR-Code gehört dazu?", "Bitte den passenden Code auswählen", 1f, bottom = { Button(onClick = { generate() }, enabled = choices.all { it.first.id in chosenCodes }) { Text("Auswahl übernehmen") } }) {
+    if (choices.any { it.second.size > 1 } && !busy) FlowWindow("Welcher QR-Code gehört dazu?", "Bitte den passenden Code auswählen", 1f, bottom = { Button(onClick = { generate() }, enabled = choices.all { it.first.id in chosenCodes }) { Text("Auswahl übernehmen") }; TextButton(onClick = { choices = emptyList() }) { Text("Zurück zur Auswahl") } }) {
         choices.filter { it.second.size > 1 }.forEach { (p, codes) ->
             Text("${p.code} · ${p.title}")
             codes.forEach { code -> OutlinedCard(onClick = { chosenCodes = chosenCodes + (p.id to code) }) { Column(Modifier.padding(12.dp)) { Text(if (chosenCodes[p.id] == code) "✓ Ausgewählt" else "Diesen Code wählen"); Text(ShippingCodeParser.parse(code)?.recipient?.let { "${it.name}\n${it.address}" } ?: code.take(300)) } } }

@@ -209,9 +209,10 @@ fun readableTime(value: Long): String = if (value == 0L) "Noch nicht" else DateT
 @Composable fun SettingsScreen(repo: ParcelRepository, onFolder: () -> Unit, onBackup: () -> Unit, onExport: () -> Unit, onImport: () -> Unit, onMessage: (String) -> Unit, onNotification: () -> Unit) {
     val backup by repo.backupMessage.collectAsStateWithLifecycle()
     var apiKey by remember { mutableStateOf("") }
-    var hasKey by remember { mutableStateOf(ApiKeyStore(repo.context).hasKey()) }
+    var hasKey by remember { mutableStateOf(false) }
     var consent by rememberSaveable { mutableStateOf(false) }
     val assistant by repo.assistant.collectAsStateWithLifecycle()
+    LaunchedEffect(assistant.encryptedKeys) { hasKey = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ApiKeyStore(repo.context).hasKey() } }
     val settingsScope = rememberCoroutineScope()
     val reminders = assistant.reminders
     val context = LocalContext.current

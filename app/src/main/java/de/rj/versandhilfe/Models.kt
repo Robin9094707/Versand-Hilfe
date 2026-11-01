@@ -88,13 +88,20 @@ fun mergeParcels(local: List<Parcel>, incoming: List<Parcel>): List<Parcel> {
         val existing = merged[p.id]
         if (existing == null) merged[p.id] = p else {
             val latest = if (p.updatedAt > existing.updatedAt) p else existing
-            merged[p.id] = latest.copy(createdAt = minOf(existing.createdAt, p.createdAt), events = (existing.events + p.events).distinctBy { Triple(it.at, it.text, it.source) }.sortedBy { it.at })
+            merged[p.id] = latest.copy(number = existing.number, numberDigits = existing.numberDigits, createdAt = minOf(existing.createdAt, p.createdAt), events = (existing.events + p.events).distinctBy { Triple(it.at, it.text, it.source) }.sortedBy { it.at })
         }
     }
+    val localIds = local.map { it.id }.toSet()
     val used = mutableSetOf<Int>()
-    var next = (merged.values.maxOfOrNull { it.number } ?: 0) + 1
-    return merged.values.sortedBy { it.createdAt }.map { p ->
-        val value = if (p.number > 0 && used.add(p.number)) p else p.copy(number = next++).also { used.add(it.number) }
-        value
+    return merged.values.sortedWith(compareBy<Parcel> { if (it.id in localIds) 0 else 1 }.thenBy { it.createdAt }).map { p ->
+        // Completed history can legitimately share numbers after wrapping; it must not be renumbered.
+        if (p.status == ParcelStatus.DELIVERED || (p.number > 0 && used.add(p.number))) p
+        else {
+            val digits = if (used.count { it in 1..99 } >= 99) 3 else p.numberDigits
+            val next = (1..numberRange(digits)).firstOrNull { it !in used }
+                ?: error("Zu viele gleichzeitig offene Pakete zum Zusammenführen.")
+            used.add(next)
+            p.copy(number = next, numberDigits = digits, events = p.events + ParcelEvent(text = "Beim Import neue Paketnummer zugeteilt: ${p.code} → P-${next.toString().padStart(digits, '0')}"))
+        }
     }.sortedByDescending { it.createdAt }
 }

@@ -23,7 +23,8 @@ import java.util.Locale
     val entries = remember(parcels, zone) { parcels.flatMap { p ->
         (listOf(ParcelEvent(at = p.createdAt, text = "Paket angelegt")) + p.events).distinctBy { it.at to it.text }.map { p to it }
     }.sortedByDescending { it.second.at } }
-    val dates = remember(entries) { entries.map { day(it.second.at) }.toSet() }
+    val dates = remember(entries, parcels) { entries.map { day(it.second.at) }.toSet() + parcels.filter { !it.aiReviewRequired && ParcelFacts.pending(it) }.mapNotNull { ParcelFacts.date(it) } }
+    val dueHere = remember(parcels, selected) { parcels.filter { !it.aiReviewRequired && ParcelFacts.pending(it) && ParcelFacts.date(it) == selected } }
     val relevant = remember(entries, selected, mode) { if (mode == "Alle Abgaben") entries.filter { it.second.text in listOf(ParcelStatus.SHIPPED.label, ParcelStatus.DELIVERED.label) } else entries.filter { day(it.second.at) == selected } }
     LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { ScreenHeading("Verlauf & Kalender", "Wann angelegt, abgegeben oder angekommen? Alles bleibt beim Paket.") }
@@ -56,7 +57,10 @@ import java.util.Locale
             }
         }
         item { Text(if (mode == "Kalender") selected.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")) else "Alle abgegebenen und angekommenen Pakete", style = MaterialTheme.typography.titleLarge) }
-        if (relevant.isEmpty()) item { Text("Für diese Auswahl gibt es noch keine Einträge.") }
+        if (mode == "Kalender") items(dueHere, key = { "due-${it.id}" }) { p ->
+            FilledTonalButton(onClick = { onOpen(p.id) }, modifier = Modifier.fillMaxWidth()) { Text("Abgabe fällig · ${p.code} · ${p.title}") }
+        }
+        if (relevant.isEmpty() && (mode != "Kalender" || dueHere.isEmpty())) item { Text("Für diese Auswahl gibt es noch keine Einträge.") }
         items(relevant.size) { index -> val (p, event) = relevant[index]
             OutlinedCard(onClick = { onOpen(p.id) }) { Column(Modifier.fillMaxWidth().padding(16.dp)) { Text("${p.code} · ${p.title}", style = MaterialTheme.typography.titleMedium); Text(event.text); Text(readableTime(event.at), style = MaterialTheme.typography.bodySmall) } }
         }

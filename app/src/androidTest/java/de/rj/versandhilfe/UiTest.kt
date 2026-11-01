@@ -125,6 +125,23 @@ class UiTest {
         org.junit.Assert.assertEquals(ParcelStatus.DRAFT, result.status)
         org.junit.Assert.assertEquals("", result.recipient)
     }
+    @Test fun intakeCannotBeClosedByBackAndRetainsThePackingChoice() {
+        var saved: Parcel? = null
+        compose.setContent { VersandTheme { EditorScreen(ParcelRepository(context), Parcel(), {}, { saved = it }, {}) } }
+        compose.onNodeWithText("Ist das Paket schon fertig?").assertIsDisplayed()
+        androidx.test.espresso.Espresso.pressBack()
+        compose.onNodeWithText("Ist das Paket schon fertig?").assertIsDisplayed()
+        compose.onNodeWithText("Wird noch gepackt").performClick()
+        compose.onNodeWithText("Ohne Foto weiter").performClick()
+        compose.onNodeWithText("Was verschickst du?").performTextInput("Testjeans")
+        compose.onNodeWithText("Weiter").performClick()
+        compose.onNodeWithText("Empfänger / Benutzername").performTextInput("Ben Muster")
+        compose.onNodeWithText("Weiter").performClick()
+        compose.onNodeWithText("Lagerplatz").performTextInput("Regal links")
+        compose.onNodeWithText("Weiter").performClick()
+        compose.onNodeWithText("In Vorbereitung speichern").performClick()
+        compose.runOnIdle { org.junit.Assert.assertEquals(ParcelStatus.DRAFT, saved!!.status); org.junit.Assert.assertEquals("Testjeans", saved!!.title) }
+    }
     @Test fun editorCannotSaveEmptyTitle() {
         compose.setContent { VersandTheme { EditorScreen(ParcelRepository(context), Parcel(), {}, {}, {}) } }
         compose.onNodeWithText("Fertig gepackt").performClick()

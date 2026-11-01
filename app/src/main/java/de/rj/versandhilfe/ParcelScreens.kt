@@ -96,7 +96,7 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
             } catch (e: Exception) {
                 onMessage(e.message ?: "Anhang konnte nicht gelesen werden")
                 attached?.let { a -> scan = runCatching { recognize(repo, a) }.getOrNull() }
-            } finally { working = false; if (camera) File(cameraPath).delete() }
+            } finally { working = false; if (original.title.isBlank() && parcel.attachments.isNotEmpty()) { scan = null; guideStep = 1 }; if (camera) File(cameraPath).delete() }
         }
     }
     val scannerPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -124,7 +124,7 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
                 if (aiReady) parcel = applyExtraction(parcel, stored, ParcelAi(repo).analyze(stored, local))
             }; if (aiReady || parcel.attachments.any { it.rawCodes.isNotEmpty() }) guideStep = 1 }
             catch (e: Exception) { onMessage(e.message ?: "Automatische Erkennung nicht verfügbar. Angaben bleiben manuell bearbeitbar.") }
-            finally { working = false }
+            finally { working = false; if (original.title.isBlank() && parcel.attachments.isNotEmpty()) guideStep = 1 }
         }
     }
     BackHandler { if (!working) leave() }
@@ -184,7 +184,7 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
             item { EditField("Notizen", parcel.notes, { parcel = parcel.copy(notes = it) }, multiline = true, placeholder = "Inhalt, Größe, Besonderheiten …") }
             item { HorizontalDivider(); Spacer(Modifier.height(14.dp)); SectionTitle("Sendungsverfolgung", "Mit einer Sendungsnummer kannst du die Anbieterseite kostenlos öffnen. Automatische Updates über TrackingMore bleiben optional.") }
             item { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Dieses Paket automatisch verfolgen", style = MaterialTheme.typography.titleSmall); Text("Sendungsnummer + Anbieter werden an TrackingMore gesendet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }; Switch(parcel.autoTrack, {
-                if (it && !ApiKeyStore(context).hasKey()) onMessage("Zuerst unter Sicherung einen API-Schlüssel einrichten")
+                if (it && !access.tracking) onMessage("Zuerst unter Sicherung einen API-Schlüssel einrichten")
                 else if (it && (parcel.trackingNumber.isBlank() || parcel.apiCourier.isBlank())) onMessage("Bitte zuerst Sendungsnummer und Anbieter eintragen")
                 else parcel = parcel.copy(autoTrack = it)
             }) } }

@@ -21,10 +21,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.sin
 
-data class VaultAccess(val ready: Boolean = false, val unlocked: Boolean = false, val hasKey: Boolean = false, val password: Boolean = false)
+data class VaultAccess(val ready: Boolean = false, val unlocked: Boolean = false, val hasKey: Boolean = false, val password: Boolean = false, val tracking: Boolean = false)
 @Composable fun rememberVaultAccess(repo: ParcelRepository, state: AssistantState): VaultAccess {
     val result by produceState(VaultAccess(), state.enabled, state.encryptedKeys) {
-        value = withContext(Dispatchers.IO) { val v = SecretVault(repo.context); VaultAccess(v.ready(state), v.unlocked(state), v.openAi.hasKey(), v.hasBackupPassword()) }
+        value = withContext(Dispatchers.IO) { val v = SecretVault(repo.context); VaultAccess(v.ready(state), v.unlocked(state), v.openAi.hasKey(), v.hasBackupPassword(), v.tracking.hasKey()) }
     }
     return result
 }

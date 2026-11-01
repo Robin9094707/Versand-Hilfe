@@ -53,14 +53,18 @@ class WorkflowTest {
     }
     @Test fun tenSecondAlarmFiresWithoutChangingAnyParcel() = runBlocking {
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
-        automation.executeShellCommand("appops set ${context.packageName} SCHEDULE_EXACT_ALARM allow").close()
-        if (android.os.Build.VERSION.SDK_INT >= 33) automation.executeShellCommand("pm grant ${context.packageName} android.permission.POST_NOTIFICATIONS").close()
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand("appops set ${context.packageName} SCHEDULE_EXACT_ALARM allow")).use { it.readBytes() }
+        if (android.os.Build.VERSION.SDK_INT >= 33) android.os.ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand("pm grant ${context.packageName} android.permission.POST_NOTIFICATIONS")).use { it.readBytes() }
         val scheduler = ReminderScheduler(context)
-        org.junit.Assume.assumeTrue(scheduler.exactAllowed())
+        assertTrue("Exact alarm permission must be granted in this device test", scheduler.exactAllowed())
         AlarmSignals.current.value = null
+        val started = System.currentTimeMillis()
+        val prefs = context.getSharedPreferences("shipping", android.content.Context.MODE_PRIVATE)
         scheduler.test(10)
-        withTimeout(20000) { while (AlarmSignals.current.value?.test != true) delay(100) }
-        assertEquals("test", AlarmSignals.current.value!!.parcelId)
+        withTimeout(20000) { while (prefs.getLong("lastTestAlarmAt", 0) < started) delay(100) }
+        assertTrue(prefs.getLong("lastTestAlarmAt", 0) >= started + 9500)
+        val channel = context.getSystemService(android.app.NotificationManager::class.java).getNotificationChannel(REMINDER_CHANNEL)
+        assertNull(channel.sound); assertFalse(channel.shouldVibrate())
         scheduler.cancel("test"); AlarmSignals.current.value = null
         Unit
     }

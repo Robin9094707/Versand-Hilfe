@@ -43,4 +43,17 @@ class ParcelRulesTest {
         val merged = mergeParcels(listOf(a), listOf(b)).single()
         assertEquals(10L, merged.createdAt); assertEquals(2, merged.events.size)
     }
+    @Test fun historicalNumbersSurviveWrapAndBackupImport() {
+        val old = Parcel(id = "old", number = 1, numberDigits = 2, status = ParcelStatus.DELIVERED, createdAt = 10)
+        val current = Parcel(id = "current", number = 1, numberDigits = 2, status = ParcelStatus.READY, createdAt = 20)
+        val restored = mergeParcels(listOf(old, current), listOf(old, current))
+        assertTrue(restored.all { it.number == 1 })
+        val incoming = Parcel(id = "incoming", number = 1, numberDigits = 2, createdAt = 1)
+        val merged = mergeParcels(listOf(old, current), listOf(incoming))
+        assertEquals(1, merged.first { it.id == "current" }.number)
+        assertEquals(1, merged.first { it.id == "old" }.number)
+        assertEquals(2, merged.first { it.id == "incoming" }.number)
+        assertTrue(merged.first { it.id == "incoming" }.events.last().text.contains("Import"))
+    }
+
 }
