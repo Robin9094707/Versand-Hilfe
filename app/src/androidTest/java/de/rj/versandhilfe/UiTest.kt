@@ -45,6 +45,7 @@ class UiTest {
             val rootUri = android.provider.DocumentsContract.buildTreeDocumentUri("${context.packageName}.fixture", "root")
             val folder = androidx.documentfile.provider.DocumentFile.fromTreeUri(context, rootUri)!!.createDirectory("ui-${java.util.UUID.randomUUID()}")!!
             val tree = android.provider.DocumentsContract.buildTreeDocumentUri("${context.packageName}.fixture", android.provider.DocumentsContract.getDocumentId(folder.uri))
+            context.grantUriPermission(context.packageName, tree, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION or android.content.Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
             repo.useFolder(repo.inspect(tree), false)
             repo.save(Parcel(number = 1, title = "Blaue Jeans", recipient = "Anna", location = "Flur · Regal links", carrier = Carrier.DHL, status = ParcelStatus.READY))
             repo.save(Parcel(number = 2, title = "Lieblingsjacke", recipient = "Sophie", carrier = Carrier.HERMES, status = ParcelStatus.SHIPPED))

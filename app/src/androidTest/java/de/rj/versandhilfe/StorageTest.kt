@@ -40,6 +40,7 @@ class StorageTest {
         val root = androidx.documentfile.provider.DocumentFile.fromTreeUri(context, tree)!!
         val sub = root.createDirectory("case-${UUID.randomUUID()}")!!
         val uri = android.provider.DocumentsContract.buildTreeDocumentUri("${context.packageName}.fixture", android.provider.DocumentsContract.getDocumentId(sub.uri))
+        context.grantUriPermission(context.packageName, uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION or android.content.Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
         repo.useFolder(repo.inspect(uri), false)
         val fixture = File(context.cacheDir, "folder-image.png")
         val bitmap = android.graphics.Bitmap.createBitmap(32, 32, android.graphics.Bitmap.Config.ARGB_8888)
@@ -60,6 +61,7 @@ class StorageTest {
         assertTrue(fresh.parcels.value.any { it.id == item.id })
         assertEquals(att.sha256, digest(File(fresh.assets, att.file).readBytes()))
         repo.prefs.edit().remove("folder").remove("folderName").commit()
+        Unit
     }
     @Test fun importedQrImageIsDecodedOnDevice() = runBlocking {
         val repo = ParcelRepository(context)
