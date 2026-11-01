@@ -71,6 +71,7 @@ fun validateArchive(archive: Archive) {
     require(archive.parcels.size <= 10000) { "Das Backup enthält zu viele Pakete." }
     require(archive.parcels.map { it.id }.distinct().size == archive.parcels.size) { "Doppelte Paket-IDs im Backup." }
     archive.parcels.forEach { p ->
+        require(p.number > 0 && p.numberDigits in 2..3) { "Ungültige Paketnummer im Backup." }
         require(p.id.matches(Regex("[a-zA-Z0-9-]{1,80}"))) { "Ungültige Paket-ID." }
         p.attachments.forEach { a ->
             require(a.qrCodes.size <= 20 && a.qrCodes.all { it in a.rawCodes }) { "Ungültige QR-Auswahl." }

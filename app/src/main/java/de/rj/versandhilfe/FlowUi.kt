@@ -23,7 +23,7 @@ import kotlin.math.sin
 
 data class VaultAccess(val ready: Boolean = false, val unlocked: Boolean = false, val hasKey: Boolean = false, val password: Boolean = false, val tracking: Boolean = false)
 @Composable fun rememberVaultAccess(repo: ParcelRepository, state: AssistantState): VaultAccess {
-    val result by produceState(VaultAccess(), state.enabled, state.encryptedKeys) {
+    val result by produceState(VaultAccess(), state.enabled, state.encryptedKeys, state.updatedAt) {
         value = withContext(Dispatchers.IO) { val v = SecretVault(repo.context); VaultAccess(v.ready(state), v.unlocked(state), v.openAi.hasKey(), v.hasBackupPassword(), v.tracking.hasKey()) }
     }
     return result
