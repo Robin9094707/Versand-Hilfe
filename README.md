@@ -6,7 +6,7 @@ Eine native Android-App für die vielen Pakete zu Hause: Paketfoto, Versandlabel
 
 1. [GitHub Actions → Android APK](https://github.com/Robin9094707/Versand-Hilfe/actions/workflows/android.yml) öffnen.
 2. Den letzten erfolgreichen Lauf wählen und unter **Artifacts** `Versandhilfe-Android-APK` herunterladen (GitHub-Anmeldung nötig).
-3. ZIP entpacken, `Versandhilfe-2.0.0.apk` auf dem Android-Handy öffnen. Installation aus dieser Quelle erlauben.
+3. ZIP entpacken, `Versandhilfe-2.1.0.apk` auf dem Android-Handy öffnen. Installation aus dieser Quelle erlauben.
 4. Beim Start einen eigenen Ordner auswählen, z. B. **Dokumente/Versandhilfe-Daten**. Android/data und Android/obb eignen sich nicht.
 
 Das ist eine installierbare Test-APK, keine Play-Store-Veröffentlichung. Der CI-Debug-Schlüssel wird zwischen Builds gecacht, damit Updates normalerweise ohne Neuinstallation funktionieren. Bei gelöschtem Cache kann sich die Testsignatur ändern; vorher ZIP exportieren. Für einen dauerhaften Release einen eigenen geschützten Signierschlüssel einrichten.
