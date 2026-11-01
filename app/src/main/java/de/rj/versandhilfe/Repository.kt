@@ -260,6 +260,7 @@ class ParcelRepository(val context: Context) {
                 writeLocal(mergeParcels(_parcels.value, inspection.archive.parcels), mergeAssistant(_assistant.value, inspection.archive.assistant))
             }
             prefs.edit().putString("folder", inspection.uri.toString()).putString("folderName", inspection.name).putBoolean("onboarded", true).commit()
+            ReminderScheduler(context).scheduleAll(this@ParcelRepository)
             backupLocked()
         }
     }
@@ -347,6 +348,7 @@ class ParcelRepository(val context: Context) {
             mutex.withLock {
                 archive.parcels.flatMap { it.attachments }.distinctBy { it.file }.forEach { a -> writeAsset(a.file, File(stage, "assets/${a.file}").readBytes()) }
                 writeLocal(mergeParcels(_parcels.value, archive.parcels), mergeAssistant(_assistant.value, archive.assistant))
+                ReminderScheduler(context).scheduleAll(this@ParcelRepository)
                 backupLocked()
             }
             archive.parcels.size
