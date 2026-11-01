@@ -114,7 +114,7 @@ class ParcelAi(private val repo: ParcelRepository, private val transport: OpenAi
         val result = call(OpenAiProtocol.request(instructions, input, AiSchemas.extraction, "parcel_extraction", image))
         val extraction = AppJson.decodeFromJsonElement<AiExtraction>(result)
         require(extraction.kinds.isNotEmpty() && extraction.kinds.size <= 4 && extraction.summary.length <= 2000) { "Unvollständige Erkennung. Bitte Angaben manuell eintragen." }
-        extraction.copy(localCodes = local?.codes.orEmpty(), localText = local?.text.orEmpty(), sourceScanned = true)
+        extraction.copy(localCodes = local?.codes.orEmpty(), localQrCodes = local?.qrCodes.orEmpty(), localText = local?.text.orEmpty(), sourceScanned = true)
     }
     suspend fun ask(question: String): ParcelAnswer {
         val local = ParcelChatPolicy.local(question)

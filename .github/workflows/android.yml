@@ -41,13 +41,13 @@ jobs:
             keytool -genkeypair -keystore "$VERSANDHILFE_DEBUG_KEYSTORE" -storepass android -keypass android -alias androiddebugkey -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
           fi
       - name: Tests, lint and installable APK
-        run: ./gradlew testDebugUnitTest lintDebug assembleDebug --stacktrace
+        run: ./gradlew testDebugUnitTest lintDebug lintRelease assembleRelease --stacktrace
       - name: Name APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk Versandhilfe-2.1.0.apk
+        run: cp app/build/outputs/apk/release/app-release.apk Versandhilfe-3.0.0.apk
       - uses: actions/upload-artifact@v4
         with:
           name: Versandhilfe-Android-APK
-          path: Versandhilfe-2.1.0.apk
+          path: Versandhilfe-3.0.0.apk
           if-no-files-found: error
           retention-days: 30
       - name: Reports

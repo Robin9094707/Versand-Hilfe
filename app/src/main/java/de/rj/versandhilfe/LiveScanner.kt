@@ -48,7 +48,7 @@ import java.util.concurrent.atomic.AtomicBoolean
     DisposableEffect(lifecycle) {
         val executor = Executors.newSingleThreadExecutor()
         val main = ContextCompat.getMainExecutor(context)
-        val scanner = BarcodeScanning.getClient()
+        val scanner = BarcodeScanning.getClient(com.google.mlkit.vision.barcode.BarcodeScannerOptions.Builder().setBarcodeFormats(com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE).build())
         val disposed = AtomicBoolean(false)
         val found = AtomicBoolean(false)
         val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }

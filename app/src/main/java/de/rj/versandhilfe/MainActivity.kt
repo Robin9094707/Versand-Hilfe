@@ -71,6 +71,7 @@ private val LightPalette = lightColorScheme(
     val loaded by repo.loaded.collectAsStateWithLifecycle()
     val loadError by repo.loadError.collectAsStateWithLifecycle()
     val assistant by repo.assistant.collectAsStateWithLifecycle()
+    val alarm by AlarmSignals.current.collectAsStateWithLifecycle()
     var onboarded by rememberSaveable { mutableStateOf(repo.prefs.getBoolean("onboarded", false)) }
     var route by rememberSaveable { mutableStateOf("home") }
     var detailId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -99,7 +100,7 @@ private val LightPalette = lightColorScheme(
     }
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri -> if (uri != null) job { repo.exportZip(uri); message("ZIP-Backup vollständig exportiert") } }
     val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) job { val n = repo.importZip(uri); message("$n Pakete eingelesen und mit deiner Sammlung zusammengeführt") } }
-    LaunchedEffect(Unit) { repo.load() }
+    LaunchedEffect(Unit) { repo.load(); kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ReminderScheduler(context).scheduleAll(repo) } }
     LaunchedEffect(openedParcel, loaded) {
         if (loaded && openedParcel != null) { detailId = openedParcel; route = "detail"; consumeOpen() }
     }
@@ -108,11 +109,11 @@ private val LightPalette = lightColorScheme(
             job { pendingShared = received.map { repo.attach(it, AttachmentKind.LABEL) }; shareTarget = true; consumeShare() }
         }
     }
-    BackHandler(route in listOf("detail", "settings", "chat")) { route = "home" }
+    BackHandler(route in listOf("detail", "settings", "chat", "history", "print")) { route = "home" }
     Scaffold(snackbarHost = { SnackbarHost(snack) }, containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            if (onboarded && loaded && route in listOf("home", "dropoff", "settings", "chat")) NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-                listOf(Triple("home", "Pakete", Icons.Outlined.Inventory2), Triple("dropoff", "Abgeben", Icons.Outlined.LocalShipping), Triple("chat", "Pakethelfer", Icons.Outlined.AutoAwesome), Triple("settings", "Sicherung", Icons.Outlined.CloudDone)).forEach { (key, title, icon) ->
+            if (onboarded && loaded && route in listOf("home", "dropoff", "history", "settings", "chat")) NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+                listOf(Triple("home", "Pakete", Icons.Outlined.Inventory2), Triple("dropoff", "Abgeben", Icons.Outlined.LocalShipping), Triple("history", "Verlauf", Icons.Outlined.CalendarMonth), Triple("chat", "Pakethelfer", Icons.Outlined.AutoAwesome), Triple("settings", "Sicherung", Icons.Outlined.CloudDone)).forEach { (key, title, icon) ->
                     NavigationBarItem(selected = route == key, onClick = { route = key }, icon = { Icon(icon, null) }, label = { Text(title) })
                 }
             }
@@ -127,13 +128,16 @@ private val LightPalette = lightColorScheme(
                 Button(onClick = { import.launch(arrayOf("application/zip", "application/octet-stream")) }) { Text("ZIP importieren") }
                 OutlinedButton(onClick = { pickFolder.launch(null) }) { Text("Ordner wieder verbinden") }
             }
+            else if (!assistant.profileComplete && assistant.name.isBlank()) ProfileSetup(repo)
             else AnimatedContent(targetState = route, transitionSpec = {
                 (fadeIn(tween(220)) + slideInHorizontally(tween(280)) { it / 12 }) togetherWith (fadeOut(tween(160)) + slideOutHorizontally(tween(220)) { -it / 16 })
             }, label = "Seitenwechsel") { page ->
                 when (page) {
                     "home" -> HomeScreen(repo, parcels, onAdd = { editId = null; draftId = java.util.UUID.randomUUID().toString(); route = "edit" }, onOpen = { detailId = it; route = "detail" }, onSettings = { route = "settings" }, onChat = { route = "chat" })
                     "chat" -> ParcelChatScreen(repo, onOpen = { detailId = it; route = "detail" }, onSettings = { route = "settings" })
-                    "dropoff" -> DropoffScreen(repo, parcels, onOpen = { detailId = it; route = "detail" }, onStatus = { ids -> job { repo.setStatus(ids, ParcelStatus.SHIPPED); message("${ids.size} Pakete als abgegeben markiert") } })
+                    "dropoff" -> DropoffScreen(repo, parcels, onOpen = { detailId = it; route = "detail" }, onStatus = { ids -> job { repo.setStatus(ids, ParcelStatus.SHIPPED, false); message("${ids.size} Pakete als abgegeben markiert") } })
+                    "history" -> HistoryScreen(parcels, { detailId = it; route = "detail" }, { route = "print" })
+                    "print" -> PrintScreen(repo, parcels, { route = "history" }, ::message)
                     "settings" -> SettingsScreen(repo, onFolder = { pickFolder.launch(null) }, onBackup = { job { if (repo.backup()) message("Sicherung vollständig und geprüft") else message(repo.backupMessage.value) } },
                         onExport = { export.launch("Versandhilfe-${java.time.LocalDate.now()}.zip") }, onImport = { import.launch(arrayOf("application/zip", "application/octet-stream")) }, onMessage = ::message,
                         onNotification = { if (Build.VERSION.SDK_INT >= 33) notifyPermission.launch(Manifest.permission.POST_NOTIFICATIONS) else message("Benachrichtigungen sind verfügbar") })
@@ -141,15 +145,15 @@ private val LightPalette = lightColorScheme(
                         val parcel = parcels.find { it.id == detailId }
                         if (parcel != null) DetailScreen(repo, parcel, onBack = { route = "home" }, onEdit = { editId = parcel.id; route = "edit" },
                             onDelete = { job { repo.delete(parcel.id); route = "home"; message("Paket entfernt") } },
-                            onStatus = { status -> job { repo.setStatus(setOf(parcel.id), status) } }, onRefresh = { job { refreshTracking(repo, parcel); message("Tracking aktualisiert") } })
+                            onStatus = { status -> job { repo.setStatus(setOf(parcel.id), status, false) } }, onRefresh = { job { refreshTracking(repo, parcel); message("Tracking aktualisiert") } })
                         else EmptyState("Paket nicht gefunden", "Es wurde möglicherweise bereits entfernt.", "Zur Übersicht", { route = "home" })
                     }
                     "edit" -> {
                         val existing = parcels.find { it.id == editId }
-                        val original = existing?.copy(attachments = existing.attachments + pendingShared.filterNot { a -> existing.attachments.any { it.id == a.id } }) ?: Parcel(id = draftId, number = (parcels.maxOfOrNull { it.number } ?: 0) + 1, attachments = pendingShared)
+                        val original = existing?.copy(attachments = existing.attachments + pendingShared.filterNot { a -> existing.attachments.any { it.id == a.id } }) ?: Parcel(id = draftId, number = runCatching { allocateParcelNumber(parcels, assistant.numberDigits, assistant.nextPackageNumber) }.getOrDefault(assistant.nextPackageNumber), numberDigits = assistant.numberDigits, attachments = pendingShared)
                         EditorScreen(repo, original, onBack = { pendingShared = emptyList(); route = if (editId == null) "home" else "detail" }, onSave = { parcel ->
                             job {
-                                val saved = repo.save(parcel); pendingShared = emptyList(); detailId = saved.id; route = "detail"
+                                val saved = repo.save(parcel, false); pendingShared = emptyList(); detailId = saved.id; route = "detail"
                                 message("${saved.code} gespeichert · Nummer auf das Paket schreiben")
                             }
                         }, onMessage = ::message)
@@ -159,6 +163,11 @@ private val LightPalette = lightColorScheme(
             if (busy) Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.scrim.copy(alpha = .25f)).clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) {}, contentAlignment = Alignment.Center) {
                 Surface(shape = RoundedCornerShape(28.dp), tonalElevation = 8.dp) { Row(Modifier.padding(28.dp), horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(28.dp)); Text("Einen Moment …") } }
             }
+        }
+    }
+    alarm?.let { notice ->
+        androidx.compose.ui.window.Dialog(onDismissRequest = {}, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = false, dismissOnClickOutside = false)) {
+            AlarmPage(repo, notice) { AlarmSignals.current.value = null }
         }
     }
     folder?.let { inspection -> AlertDialog(onDismissRequest = { folder = null }, icon = { Icon(Icons.Outlined.Restore, null) }, title = { Text("Vorhandene Sammlung gefunden") },

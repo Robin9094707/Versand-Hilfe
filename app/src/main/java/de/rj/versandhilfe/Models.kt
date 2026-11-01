@@ -37,7 +37,7 @@ val AppJson = Json { ignoreUnknownKeys = true; prettyPrint = true; encodeDefault
     val id: String = UUID.randomUUID().toString(), val name: String, val mime: String,
     val file: String, val sha256: String, val kind: AttachmentKind,
     val detectedKinds: List<AttachmentKind> = emptyList(), val aiAnalyzed: Boolean = false,
-    val rawCodes: List<String> = emptyList()
+    val rawCodes: List<String> = emptyList(), val qrCodes: List<String> = emptyList()
 ) { fun hasKind(value: AttachmentKind) = kind == value || value in detectedKinds }
 @Serializable data class ParcelEvent(
     val at: Long = System.currentTimeMillis(), val text: String, val source: String = "Manuell"
@@ -52,9 +52,10 @@ val AppJson = Json { ignoreUnknownKeys = true; prettyPrint = true; encodeDefault
     val attachments: List<Attachment> = emptyList(), val events: List<ParcelEvent> = emptyList(),
     val updatedAt: Long = System.currentTimeMillis(), val createdAt: Long = System.currentTimeMillis(),
     val trackingSummary: String = "", val trackingCheckedAt: Long = 0, val trackingError: String = "",
+    val numberDigits: Int = 3, val snoozedUntil: Long = 0, val lastReminderAt: Long = 0,
     val orderNumber: String = "", val aiSummary: String = "", val aiEvidence: Map<String, String> = emptyMap(), val aiReviewRequired: Boolean = false
 ) {
-    val code get() = "P-${number.toString().padStart(3, '0')}"
+    val code get() = "P-${number.toString().padStart(numberDigits, '0')}"
     val apiCourier get() = customCourierCode.trim().ifBlank { carrier.apiCode }
     fun isDue(): Boolean = !aiReviewRequired && dueDate.isNotBlank() && status in listOf(ParcelStatus.DRAFT, ParcelStatus.READY) &&
         runCatching { !LocalDate.parse(dueDate).isAfter(LocalDate.now().plusDays(1)) }.getOrDefault(false)
@@ -66,12 +67,13 @@ val AppJson = Json { ignoreUnknownKeys = true; prettyPrint = true; encodeDefault
 )
 fun validateArchive(archive: Archive) {
     require(archive.format == "de.rj.versandhilfe" && archive.version == 1) { "Dieses Backup-Format wird nicht unterstützt." }
-    require(archive.assistant.dailyLimit in 1..50 && archive.assistant.messages.size <= 80 && archive.assistant.name.length <= 80 && archive.assistant.encryptedKeys.length <= 30000) { "Ungültige Assistenten-Einstellungen." }
+    require((archive.assistant.dailyLimit == 0 || archive.assistant.dailyLimit in 1..100000) && archive.assistant.numberDigits in 2..3 && archive.assistant.nextPackageNumber in 1..999 && archive.assistant.reminderEveryHours in 6..168 && archive.assistant.messages.size <= 80 && archive.assistant.name.length <= 80 && archive.assistant.encryptedKeys.length <= 30000) { "Ungültige Assistenten-Einstellungen." }
     require(archive.parcels.size <= 10000) { "Das Backup enthält zu viele Pakete." }
     require(archive.parcels.map { it.id }.distinct().size == archive.parcels.size) { "Doppelte Paket-IDs im Backup." }
     archive.parcels.forEach { p ->
         require(p.id.matches(Regex("[a-zA-Z0-9-]{1,80}"))) { "Ungültige Paket-ID." }
         p.attachments.forEach { a ->
+            require(a.qrCodes.size <= 20 && a.qrCodes.all { it in a.rawCodes }) { "Ungültige QR-Auswahl." }
             require(a.rawCodes.size <= 20 && a.rawCodes.all { it.length <= 12000 }) { "Zu viele oder zu lange QR-Inhalte im Backup." }
             require(a.file.matches(Regex("[a-f0-9]{64}\\.(jpg|png|webp|pdf)"))) { "Ungültiger Dateipfad im Backup." }
             require(a.sha256.matches(Regex("[a-f0-9]{64}")) && a.file.startsWith(a.sha256)) { "Ungültige Dateiprüfsumme." }
@@ -82,7 +84,13 @@ fun validateArchive(archive: Archive) {
 /** Merge keeps unrelated local records; IDs are identity, display numbers are reallocated on collision. */
 fun mergeParcels(local: List<Parcel>, incoming: List<Parcel>): List<Parcel> {
     val merged = local.associateBy { it.id }.toMutableMap()
-    incoming.forEach { p -> if (p.updatedAt > (merged[p.id]?.updatedAt ?: -1)) merged[p.id] = p }
+    incoming.forEach { p ->
+        val existing = merged[p.id]
+        if (existing == null) merged[p.id] = p else {
+            val latest = if (p.updatedAt > existing.updatedAt) p else existing
+            merged[p.id] = latest.copy(createdAt = minOf(existing.createdAt, p.createdAt), events = (existing.events + p.events).distinctBy { Triple(it.at, it.text, it.source) }.sortedBy { it.at })
+        }
+    }
     val used = mutableSetOf<Int>()
     var next = (merged.values.maxOfOrNull { it.number } ?: 0) + 1
     return merged.values.sortedBy { it.createdAt }.map { p ->

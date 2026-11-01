@@ -121,12 +121,15 @@ class UiTest {
         var result = Parcel(title = "Karton", aiReviewRequired = true)
         compose.setContent { VersandTheme { IntakeGuide(result, 4, { result = it }, {}) } }
         compose.onNodeWithText("Bereit zum Abgeben").assertIsNotEnabled()
-        compose.onNodeWithText("Erst einmal anlegen").performClick()
+        compose.onNodeWithText("In Vorbereitung speichern").performClick()
         org.junit.Assert.assertEquals(ParcelStatus.DRAFT, result.status)
         org.junit.Assert.assertEquals("", result.recipient)
     }
     @Test fun editorCannotSaveEmptyTitle() {
         compose.setContent { VersandTheme { EditorScreen(ParcelRepository(context), Parcel(), {}, {}, {}) } }
+        compose.onNodeWithText("Fertig gepackt").performClick()
+        compose.onNodeWithText("Ohne Foto weiter").performClick()
+        compose.onNodeWithText("Im Formular weiter").performClick()
         compose.onNodeWithText("Speichern").assertIsNotEnabled()
         compose.onNodeWithText("Artikel / Paketname *").performTextInput("Mamas Jacke")
         compose.onNodeWithText("Speichern").assertIsEnabled()

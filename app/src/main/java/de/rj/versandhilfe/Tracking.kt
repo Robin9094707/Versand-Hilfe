@@ -35,6 +35,9 @@ class ShippingApp : Application() {
     override fun onCreate() {
         super.onCreate()
         getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel("shipping", "Paket-Updates & Fristen", NotificationManager.IMPORTANCE_DEFAULT))
+        getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(REMINDER_CHANNEL, "Leise Paket-Erinnerungen", NotificationManager.IMPORTANCE_HIGH).apply {
+            setSound(null, null); enableVibration(false); lockscreenVisibility = android.app.Notification.VISIBILITY_PRIVATE
+        })
         val request = PeriodicWorkRequestBuilder<ShippingWorker>(1, TimeUnit.HOURS)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.MINUTES).build()
         WorkManager.getInstance(this).enqueueUniquePeriodicWork("shipping-sync", ExistingPeriodicWorkPolicy.UPDATE, request)
@@ -193,14 +196,7 @@ class ShippingWorker(context: Context, params: WorkerParameters) : CoroutineWork
                 kotlinx.coroutines.delay(1100)
             }
         }
-        val today = java.time.LocalDate.now().toString()
-        val assistant = repo.assistant.value
-        if (assistant.reminders && java.time.LocalTime.now().hour >= assistant.reminderHour && repo.prefs.getString("reminderDate", "") != today) {
-            val dueParcels = repo.parcels.value.filter { it.isDue() }
-            val due = dueParcels.size
-            if (due > 0) notifyParcel(applicationContext, 100, "Noch $due Paket${if (due > 1) "e" else ""} abgeben", "${assistant.name.takeIf { it.isNotBlank() }?.let { "$it, " }.orEmpty()}${dueParcels.take(3).joinToString { "${it.code} ${it.title}" }}: bitte die bestätigten Abgabefristen prüfen.", dueParcels.firstOrNull()?.id)
-            repo.prefs.edit().putString("reminderDate", today).apply()
-        }
+        ReminderScheduler(applicationContext).scheduleAll(repo)
         return if (failed && runAttemptCount < 3) Result.retry() else Result.success()
     }
 }

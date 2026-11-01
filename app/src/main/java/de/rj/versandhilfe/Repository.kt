@@ -6,7 +6,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.AtomicFile
 import androidx.documentfile.provider.DocumentFile
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -44,6 +44,13 @@ class ParcelRepository(val context: Context) {
     val assets = File(context.filesDir, "assets").apply { mkdirs() }
     private val manifest = AtomicFile(File(context.filesDir, "parcels.json"))
     private val mutex = Mutex()
+    private val backupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var queuedBackup: Job? = null
+    private fun queueBackup() {
+        if (queuedBackup?.isActive == true) return
+        backupMessage.value = "Auf dem Handy gespeichert · Ordnersicherung läuft im Hintergrund"
+        queuedBackup = backupScope.launch { delay(700); backup() }
+    }
     private val _parcels = MutableStateFlow<List<Parcel>>(emptyList())
     val parcels = _parcels.asStateFlow()
     private val _assistant = MutableStateFlow(AssistantState())
@@ -93,8 +100,9 @@ class ParcelRepository(val context: Context) {
         mutex.withLock {
             require(loadError.value == null) { "Bitte zuerst eine Sicherung wiederherstellen." }
             val next = transform(_assistant.value).copy(updatedAt = System.currentTimeMillis())
-            require(next.dailyLimit in 1..50 && next.name.length <= 80)
+            require((next.dailyLimit == 0 || next.dailyLimit in 1..100000) && next.name.length <= 80 && next.numberDigits in 2..3)
             writeLocal(_parcels.value, next)
+            ReminderScheduler(context).scheduleAll(this@ParcelRepository)
             backupLocked()
         }
     }
@@ -132,7 +140,7 @@ class ParcelRepository(val context: Context) {
             val today = java.time.LocalDate.now().toString()
             val current = _assistant.value
             val count = if (current.usageDate == today) current.calls else 0
-            require(count < current.dailyLimit) { "Dein Tageslimit von ${current.dailyLimit} KI-Aufrufen ist erreicht. Morgen geht es weiter." }
+            require(current.dailyLimit == 0 || count < current.dailyLimit) { "Dein Tageslimit von ${current.dailyLimit} KI-Aufrufen ist erreicht. Morgen geht es weiter." }
             writeLocal(_parcels.value, current.copy(usageDate = today, calls = count + 1, inputTokens = if (current.usageDate == today) current.inputTokens else 0, outputTokens = if (current.usageDate == today) current.outputTokens else 0, updatedAt = System.currentTimeMillis()))
         }
     }
@@ -142,34 +150,51 @@ class ParcelRepository(val context: Context) {
     suspend fun addChat(question: String, answer: ParcelAnswer) = modifyAssistant {
         it.copy(messages = (it.messages + listOf(ParcelChatMessage(role = "user", text = question.take(1000)), ParcelChatMessage(role = "assistant", text = answer.text.take(12000), parcelIds = answer.parcels.map { p -> p.id }))).takeLast(80))
     }
-    suspend fun save(parcel: Parcel): Parcel = withContext(Dispatchers.IO) {
+    suspend fun save(parcel: Parcel, waitForBackup: Boolean = true): Parcel = withContext(Dispatchers.IO) {
         mutex.withLock {
             require(loadError.value == null) { "Bitte zuerst die Daten aus einer Sicherung wiederherstellen." }
             val previous = _parcels.value.find { it.id == parcel.id }
-            val number = previous?.number ?: ((_parcels.value.maxOfOrNull { it.number } ?: 0) + 1)
-            val item = parcel.copy(number = number, updatedAt = System.currentTimeMillis())
-            writeLocal(listOf(item) + _parcels.value.filterNot { it.id == item.id })
-            backupLocked()
+            val allocated = if (previous == null) allocateParcelNumber(_parcels.value, _assistant.value.numberDigits, _assistant.value.nextPackageNumber) else previous.number
+            val now = System.currentTimeMillis()
+            val events = if (previous == null) listOf(ParcelEvent(at = now, text = "Paket angelegt")) else previous.events +
+                listOf(ParcelEvent(at = now, text = if (previous.status != parcel.status) parcel.status.label else "Angaben ergänzt oder geändert"))
+            val item = parcel.copy(number = allocated, numberDigits = previous?.numberDigits ?: _assistant.value.numberDigits,
+                createdAt = previous?.createdAt ?: now, updatedAt = now, events = events)
+            val state = if (previous == null) _assistant.value.copy(nextPackageNumber = allocated % numberRange(_assistant.value.numberDigits) + 1, updatedAt = now) else _assistant.value
+            writeLocal(listOf(item) + _parcels.value.filterNot { it.id == item.id }, state)
+            ReminderScheduler(context).schedule(item, state)
+            if (waitForBackup) backupLocked() else queueBackup()
             item
         }
     }
-    suspend fun update(id: String, transform: (Parcel) -> Parcel) = withContext(Dispatchers.IO) {
+    suspend fun update(id: String, waitForBackup: Boolean = true, transform: (Parcel) -> Parcel) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val current = _parcels.value.firstOrNull { it.id == id } ?: return@withLock
-            writeLocal(_parcels.value.map { if (it.id == id) transform(current).copy(updatedAt = System.currentTimeMillis()) else it })
-            backupLocked()
+            val next = transform(current)
+            val audit = current.events + (if (next.status != current.status) listOf(ParcelEvent(text = next.status.label)) else emptyList()) +
+                (if (next.trackingSummary.isNotBlank() && next.trackingSummary != current.trackingSummary) listOf(ParcelEvent(text = next.trackingSummary, source = "TrackingMore")) else emptyList())
+            val updated = next.copy(id = current.id, number = current.number, numberDigits = current.numberDigits, createdAt = current.createdAt, events = audit, updatedAt = System.currentTimeMillis())
+            writeLocal(_parcels.value.map { if (it.id == id) updated else it })
+            ReminderScheduler(context).schedule(updated, _assistant.value)
+            if (waitForBackup) backupLocked() else queueBackup()
         }
     }
     suspend fun delete(id: String) = withContext(Dispatchers.IO) {
-        mutex.withLock { writeLocal(_parcels.value.filterNot { it.id == id }); backupLocked() }
+        mutex.withLock { ReminderScheduler(context).cancel(id); writeLocal(_parcels.value.filterNot { it.id == id }); backupLocked() }
     }
-    suspend fun setStatus(ids: Set<String>, status: ParcelStatus) = withContext(Dispatchers.IO) {
+    suspend fun setStatus(ids: Set<String>, status: ParcelStatus, waitForBackup: Boolean = true) = withContext(Dispatchers.IO) {
         mutex.withLock {
             writeLocal(_parcels.value.map {
-                if (it.id in ids && it.status != status) it.copy(status = status, updatedAt = System.currentTimeMillis(), events = listOf(ParcelEvent(text = status.label)) + it.events) else it
+                if (it.id in ids && it.status != status) it.copy(status = status, updatedAt = System.currentTimeMillis(), events = it.events + ParcelEvent(text = status.label)) else it
             })
-            backupLocked()
+            ids.forEach { id -> _parcels.value.find { it.id == id }?.let { ReminderScheduler(context).schedule(it, _assistant.value) } }
+            if (waitForBackup) backupLocked() else queueBackup()
         }
+    }
+    suspend fun snooze(id: String, hours: Int) = withContext(Dispatchers.IO) {
+        require(hours in 1..3)
+        update(id, waitForBackup = false) { it.copy(snoozedUntil = System.currentTimeMillis() + hours * 3600000L) }
+        _parcels.value.find { it.id == id }?.let { ReminderScheduler(context).schedule(it, _assistant.value) }
     }
     private fun writeAsset(name: String, bytes: ByteArray) {
         val target = File(assets, name)

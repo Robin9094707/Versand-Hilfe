@@ -16,7 +16,7 @@ import java.net.URI
 import java.net.URLDecoder
 
 /** Detection is deliberately conservative: carrier logos alone never turn arbitrary QR data into a tracking ID. */
-data class ScanResult(val codes: List<String>, val text: String, val candidates: List<TrackingCandidate>, val suggestedCarrier: Carrier)
+data class ScanResult(val codes: List<String>, val text: String, val candidates: List<TrackingCandidate>, val suggestedCarrier: Carrier, val qrCodes: List<String> = emptyList())
 data class TrackingCandidate(val number: String, val carrier: Carrier, val reason: String)
 object TrackingDetector {
     fun carrier(text: String): Carrier {
@@ -95,10 +95,12 @@ suspend fun recognize(repository: ParcelRepository, attachment: Attachment): Sca
             bitmap = renderPage(file).first
             InputImage.fromBitmap(bitmap!!, 0)
         } else InputImage.fromFilePath(repository.context, android.net.Uri.fromFile(file))
-        val codes = scanner.process(image).await().mapNotNull { it.rawValue }.distinct()
+        val decoded = scanner.process(image).await()
+        val codes = decoded.mapNotNull { it.rawValue }.distinct()
+        val qrCodes = (attachment.qrCodes + decoded.filter { it.format == com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE }.mapNotNull { it.rawValue }).distinct().filter { it.length <= 12000 }.take(20)
         val text = recognizer.process(image).await().text
         val allCodes = (attachment.rawCodes + codes).distinct().filter { it.length <= 12000 }.take(20)
         val carrier = if (ShippingCodeParser.analyze(allCodes).parsed.isNotEmpty()) Carrier.DHL else TrackingDetector.carrier(text + allCodes.joinToString(" "))
-        ScanResult(allCodes, text, TrackingDetector.candidates(allCodes, text), carrier)
+        ScanResult(allCodes, text, TrackingDetector.candidates(allCodes, text), carrier, qrCodes)
     } finally { scanner.close(); recognizer.close(); bitmap?.recycle() }
 }

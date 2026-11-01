@@ -102,11 +102,11 @@ fun readableTime(value: Long): String = if (value == 0L) "Noch nicht" else DateT
     val backup by repo.backupMessage.collectAsStateWithLifecycle()
     val active = parcels.count { it.status != ParcelStatus.DELIVERED }
     val ready = parcels.count { it.status == ParcelStatus.READY }
-    val filtered = parcels.filter { p ->
+    val filtered = remember(parcels, query, filter, provider, sort) { parcels.filter { p ->
         (filter == "Alle" || (filter == "Aktiv" && p.status != ParcelStatus.DELIVERED) || filter == p.status.label) &&
             (provider == "Alle Anbieter" || provider == p.carrier.label) &&
             listOf(p.title, p.code, p.recipient, p.address, p.notes, p.location, p.platform, p.trackingNumber).any { it.contains(query, true) }
-    }.let { list -> if (sort == "Frist zuerst") list.sortedWith(compareBy<Parcel> { it.dueDate.ifBlank { "9999" } }.thenBy { it.number }) else list.sortedByDescending { it.createdAt } }
+    }.let { list -> if (sort == "Frist zuerst") list.sortedWith(compareBy<Parcel> { it.dueDate.ifBlank { "9999" } }.thenBy { it.number }) else list.sortedByDescending { it.createdAt } } }
     Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize().testTag("parcel-list"), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 104.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item { ScreenHeading("Dein Versand", "Ein bisschen Ordnung. Viel mehr Überblick.") { IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, "Einstellungen") } } }
@@ -198,7 +198,7 @@ fun readableTime(value: Long): String = if (value == 0L) "Noch nicht" else DateT
     val chosen = selected.toSet().intersect(ready.map { it.id }.toSet())
     LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { ScreenHeading("Zeit zum Abgeben", "Foto vergleichen. Label zeigen. Fertig.") }
-        item { InfoCard(Icons.Outlined.Edit, "Die Nummer macht den Unterschied", "Schreib P-001, P-002 … auf deine Kartons. Im Paketshop findest du so sofort den passenden QR-Code.") }
+        item { InfoCard(Icons.Outlined.Edit, "Die Nummer macht den Unterschied", "Schreib die Paketnummern … auf deine Kartons. Im Paketshop findest du so sofort den passenden QR-Code.") }
         if (ready.isEmpty()) item { EmptyState("Alles erledigt", "Pakete mit dem Status „Bereit zur Abgabe“ erscheinen hier.") }
         if (ready.isNotEmpty()) item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text("${ready.size} Pakete bereit", style = MaterialTheme.typography.titleMedium); TextButton(onClick = { selected = if (chosen.size == ready.size) emptyList() else ready.map { it.id } }) { Text(if (chosen.size == ready.size) "Auswahl lösen" else "Alle auswählen") } } }
         items(ready, key = { it.id }) { p -> ParcelCard(repo, p, { onOpen(p.id) }, p.id in chosen) { selected = if (p.id in selected) selected - p.id else selected + p.id } }
@@ -218,6 +218,7 @@ fun readableTime(value: Long): String = if (value == 0L) "Noch nicht" else DateT
     LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         item { ScreenHeading("Gut aufgehoben", "Dein Profil, KI-Modus und Sicherung.") }
         item { AssistantSettings(repo, onMessage) }
+        item { ParcelSettings(repo, onNotification, onMessage) }
         item { InfoCard(Icons.Outlined.FolderOpen, repo.folderName, "$backup\nLetzte Sicherung: ${readableTime(repo.lastBackup)}") }
         item { Text("Sicherung & Wiederherstellung", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
         item { ActionRow(Icons.Outlined.FolderOpen, "Ordner auswählen / wieder verbinden", "Nach Neuinstallation denselben Ordner wählen", onFolder) }
@@ -226,6 +227,7 @@ fun readableTime(value: Long): String = if (value == 0L) "Noch nicht" else DateT
         item { ActionRow(Icons.Outlined.Restore, "ZIP-Backup importieren", "Sammlungen zusammenführen, nichts pauschal ersetzen", onImport) }
         item { Text("Der gewählte Ordner bleibt beim Deinstallieren erhalten. Sichere zusätzlich eine ZIP-Datei außerhalb des Handys, falls das Gerät verloren geht. Alte Sicherungen enthalten auch früher entfernte Pakete. ZIPs und Ordner enthalten persönliche Daten unverschlüsselt.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item { HorizontalDivider() }
+        item { InfoCard(Icons.Outlined.TravelExplore, "Kostenlos direkt beim Anbieter", "Trage beim Paket eine Sendungsnummer ein und tippe auf „Kostenlos verfolgen“. DHL, Hermes, DPD, UPS, GLS, FedEx und Deutsche Post öffnen ihre offizielle Tracking-Seite. Dafür brauchst du keinen weiteren API-Schlüssel. Der Live-Status wird dort angezeigt und nicht automatisch in die App übernommen.") }
         item { Text("Optionale Sendungsverfolgung", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
         item { InfoCard(Icons.Outlined.TravelExplore, "Automatisch mit TrackingMore", "Für automatische Updates wird ein eigenes TrackingMore-Konto mit API-Schlüssel benötigt. Je nach Tarif kostenpflichtig. Ohne Schlüssel bleiben die direkten Anbieter-Links verfügbar.", MaterialTheme.colorScheme.primaryContainer) }
         item { Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(consent, { consent = it }); Text("Ich möchte Sendungsnummer und Anbieter an TrackingMore übertragen. Fotos, Namen, Adressen und Notizen werden dafür nicht gesendet.", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium) } }
@@ -238,7 +240,7 @@ fun readableTime(value: Long): String = if (value == 0L) "Noch nicht" else DateT
         item { ChoiceField("Tägliche Erinnerung frühestens ab", "${assistant.reminderHour}:00 Uhr", listOf("9:00 Uhr", "12:00 Uhr", "18:00 Uhr")) { value -> settingsScope.launch { repo.modifyAssistant { it.copy(reminderHour = value.substringBefore(":").toInt()) } } } }
         item { Text("Android führt Erinnerungen im Hintergrund auch nach dem normalen Schließen aus. Akkuoptimierung kann sie verschieben; nach „Stopp erzwingen“ muss die App einmal wieder geöffnet werden. Kein Dauerbetrieb und keine ständigen KI-Aufrufe nötig.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item { ActionRow(Icons.Outlined.NotificationsActive, "Benachrichtigungen erlauben", "Paket-Updates und Abgabefristen", onNotification) }
-        item { Text("Versandhilfe 2.0.0\nMit Liebe zur Ordnung. Für die vielen kleinen Reisen deiner Pakete.", Modifier.padding(vertical = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text("Versandhilfe 3.0.0\nMit Liebe zur Ordnung. Für die vielen kleinen Reisen deiner Pakete.", Modifier.padding(vertical = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
 @Composable fun ActionRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit) {

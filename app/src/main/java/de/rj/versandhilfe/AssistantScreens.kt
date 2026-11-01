@@ -27,7 +27,7 @@ import kotlinx.coroutines.launch
 @Composable fun AssistantSettings(repo: ParcelRepository, onMessage: (String) -> Unit) {
     val state by repo.assistant.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val vault = remember { SecretVault(context) }
+    val access = rememberVaultAccess(repo, state)
     var name by rememberSaveable(state.name) { mutableStateOf(state.name) }
     var key by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -44,26 +44,26 @@ import kotlinx.coroutines.launch
         SectionTitle("KI & dein Profil", "Dein persönlicher Versandhelfer – ganz freiwillig.")
         OutlinedTextField(name, { name = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Wie heißt du?") }, singleLine = true, shape = RoundedCornerShape(20.dp))
         FilledTonalButton(onClick = { job { repo.modifyAssistant { it.copy(name = name.trim().take(80)) }; onMessage("Name gespeichert") } }, enabled = !busy) { Text("Namen speichern") }
-        OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("Backup-Passwort") }, supportingText = { Text(if (vault.hasBackupPassword()) "Bereits auf diesem Gerät geschützt hinterlegt. Leer lassen oder neues Passwort wählen." else "Mindestens 10 Zeichen. Gut aufbewahren: Zum Wiederherstellen der API-Schlüssel nötig.") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), shape = RoundedCornerShape(20.dp), keyboardOptions = KeyboardOptions(autoCorrectEnabled = false))
-        Button(onClick = { job { repo.configureAssistant(name, null, password, state.enabled); password = ""; onMessage("Profil und verschlüsseltes Schlüsselbackup gespeichert") } }, enabled = !busy && (password.length >= 10 || vault.hasBackupPassword()), modifier = Modifier.fillMaxWidth()) { Text("Profil & Schlüsselbackup speichern") }
-        if (state.encryptedKeys.isNotBlank() && !vault.unlocked(state)) {
+        OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("Backup-Passwort") }, supportingText = { Text(if (access.password) "Bereits auf diesem Gerät geschützt hinterlegt. Leer lassen oder neues Passwort wählen." else "Mindestens 10 Zeichen. Gut aufbewahren: Zum Wiederherstellen der API-Schlüssel nötig.") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), shape = RoundedCornerShape(20.dp), keyboardOptions = KeyboardOptions(autoCorrectEnabled = false))
+        Button(onClick = { job { repo.configureAssistant(name, null, password, state.enabled); password = ""; onMessage("Profil und verschlüsseltes Schlüsselbackup gespeichert") } }, enabled = !busy && (password.length >= 10 || access.password), modifier = Modifier.fillMaxWidth()) { Text("Profil & Schlüsselbackup speichern") }
+        if (state.encryptedKeys.isNotBlank() && !access.unlocked) {
             InfoCard(Icons.Outlined.Lock, "Schlüsselbackup gefunden", "Nach einer Neuinstallation dein Backup-Passwort eingeben und entsperren. OpenAI und TrackingMore sind danach wieder verfügbar.")
             FilledTonalButton(onClick = { job { repo.unlockKeys(password); password = ""; onMessage("API-Schlüssel entsperrt") } }, enabled = !busy && password.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("API-Schlüssel aus Backup entsperren") }
             TextButton(onClick = { resetKeys = true }) { Text("Passwort vergessen: Schlüsselbackup zurücksetzen") }
         }
         InfoCard(Icons.Outlined.AutoAwesome, "Automatisch erkennen mit GPT-5.6 Luna", "Foto, QR-Label, Adresse oder Vinted-Screenshot: Die KI schlägt die Zuordnung und passende Felder vor. Deine Bilder und der erkannte Text werden dazu an OpenAI gesendet. Fehler bleiben möglich – Angaben vor dem Speichern prüfen.", MaterialTheme.colorScheme.primaryContainer)
         Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(consent, { consent = it }); Text("Ich möchte Bilder und Versandtexte mit meinem eigenen OpenAI-API-Schlüssel auswerten. API-Nutzung wird separat abgerechnet.", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium) }
-        OutlinedTextField(key, { key = it.trim() }, Modifier.fillMaxWidth(), label = { Text(if (vault.openAi.hasKey()) "Neuer OpenAI-Schlüssel (einer ist gespeichert)" else "OpenAI-API-Schlüssel") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), shape = RoundedCornerShape(20.dp), keyboardOptions = KeyboardOptions(autoCorrectEnabled = false))
+        OutlinedTextField(key, { key = it.trim() }, Modifier.fillMaxWidth(), label = { Text(if (access.hasKey) "Neuer OpenAI-Schlüssel (einer ist gespeichert)" else "OpenAI-API-Schlüssel") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), shape = RoundedCornerShape(20.dp), keyboardOptions = KeyboardOptions(autoCorrectEnabled = false))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { job { repo.configureAssistant(name, key.ifBlank { null }, password, true); key = ""; password = ""; onMessage("KI-Modus aktiviert – neue Bilder werden automatisch erkannt") } }, enabled = !busy && consent && (key.isNotBlank() || vault.openAi.hasKey()) && (password.length >= 10 || vault.hasBackupPassword())) { Text("KI-Modus aktivieren") }
+            Button(onClick = { job { repo.configureAssistant(name, key.ifBlank { null }, password, true); key = ""; password = ""; onMessage("KI-Modus aktiviert – neue Bilder werden automatisch erkannt") } }, enabled = !busy && consent && (key.isNotBlank() || access.hasKey) && (password.length >= 10 || access.password)) { Text("KI-Modus aktivieren") }
             if (state.enabled) TextButton(onClick = { job { repo.modifyAssistant { it.copy(enabled = false) }; onMessage("KI-Modus ausgeschaltet") } }, enabled = !busy) { Text("Ausschalten") }
         }
-        Text(if (vault.ready(state)) "KI-Modus ist aktiv. Neue Bilder werden automatisch analysiert." else "KI-Modus ist aus oder der Schlüssel ist noch gesperrt. Die normale App bleibt vollständig nutzbar.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        ChoiceField("Maximale KI-Aufrufe pro Tag", state.dailyLimit.toString(), listOf("5", "10", "20", "50")) { value -> job { repo.modifyAssistant { it.copy(dailyLimit = value.toInt()) } } }
+        Text(if (access.ready) "KI-Modus ist aktiv. Neue Bilder werden automatisch analysiert." else "KI-Modus ist aus oder der Schlüssel ist noch gesperrt. Die normale App bleibt vollständig nutzbar.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        ChoiceField("Maximale KI-Aufrufe pro Tag", if (state.dailyLimit == 0) "Unbegrenzt" else state.dailyLimit.toString(), listOf("5", "10", "20", "50", "100", "200", "500", "Unbegrenzt")) { value -> job { repo.modifyAssistant { it.copy(dailyLimit = value.toIntOrNull() ?: 0) } } }
         val today = java.time.LocalDate.now().toString()
         val calls = if (state.usageDate == today) state.calls else 0
         val estimate = if (state.usageDate == today) (state.inputTokens * 0.20 + state.outputTokens * 1.20) / 1_000_000.0 else 0.0
-        Text("Heute: $calls / ${state.dailyLimit} Aufrufe · Token-Schätzung: ${"%.4f".format(java.util.Locale.US, estimate)} USD\nPreisgrundlage: 0,20 USD Eingabe / 1,20 USD Ausgabe je 1 Mio. Tokens (Stand 01.11.2026). Orientierung, keine Abrechnungszusage. Auch fehlgeschlagene Aufrufversuche zählen zum App-Limit. Allgemeine Fragen und Standardübersichten brauchen keinen API-Aufruf.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Heute: $calls / ${if (state.dailyLimit == 0) "unbegrenzt" else state.dailyLimit.toString()} Aufrufe · Token-Schätzung: ${"%.4f".format(java.util.Locale.US, estimate)} USD\nPreisgrundlage: 0,20 USD Eingabe / 1,20 USD Ausgabe je 1 Mio. Tokens (Stand 01.11.2026). Orientierung, keine Abrechnungszusage. Auch fehlgeschlagene Aufrufversuche zählen zum App-Limit. Allgemeine Fragen und Standardübersichten brauchen keinen API-Aufruf.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         ActionRow(Icons.Outlined.OpenInNew, "OpenAI-API-Schlüssel erstellen", "Eigener API-Zugang", { openWeb(context, "https://platform.openai.com/api-keys") })
         ActionRow(Icons.Outlined.OpenInNew, "API-Nutzung & Kosten prüfen", "Abrechnung bei OpenAI", { openWeb(context, "https://platform.openai.com/usage") })
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -73,7 +73,7 @@ import kotlinx.coroutines.launch
 }
 @Composable fun WelcomeCard(repo: ParcelRepository, parcels: List<Parcel>, onOpen: (String) -> Unit, onChat: () -> Unit) {
     val state by repo.assistant.collectAsStateWithLifecycle()
-    val ready = SecretVault(repo.context).ready(state)
+    val ready = rememberVaultAccess(repo, state).ready
     Surface(shape = RoundedCornerShape(26.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
         Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(greeting(state.name), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -87,7 +87,7 @@ import kotlinx.coroutines.launch
 @Composable fun ParcelChatScreen(repo: ParcelRepository, onOpen: (String) -> Unit, onSettings: () -> Unit) {
     val state by repo.assistant.collectAsStateWithLifecycle()
     val parcels by repo.parcels.collectAsStateWithLifecycle()
-    val ready = SecretVault(repo.context).ready(state)
+    val ready = rememberVaultAccess(repo, state).ready
     var question by rememberSaveable { mutableStateOf("") }
     var working by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }

@@ -52,14 +52,17 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
 @Composable fun EditorScreen(repo: ParcelRepository, original: Parcel, onBack: () -> Unit, onSave: (Parcel) -> Unit, onMessage: (String) -> Unit) {
     var parcel by rememberSaveable(original.id, stateSaver = ParcelSaver) { mutableStateOf(original) }
     val aiState by repo.assistant.collectAsStateWithLifecycle()
-    val aiReady = SecretVault(repo.context).ready(aiState)
-    var kindName by rememberSaveable { mutableStateOf(if (aiReady) "AUTO" else AttachmentKind.PHOTO.name) }
+    val access = rememberVaultAccess(repo, aiState)
+    val aiReady = access.ready
+    var kindName by rememberSaveable { mutableStateOf(if (aiState.enabled) "AUTO" else AttachmentKind.PHOTO.name) }
     val kind = AttachmentKind.entries.firstOrNull { it.name == kindName } ?: AttachmentKind.PHOTO
     var working by remember { mutableStateOf(false) }
     var scan by remember { mutableStateOf<ScanResult?>(null) }
     var viewer by remember { mutableStateOf<Attachment?>(null) }
     var discard by remember { mutableStateOf(false) }
     var dateDialog by remember { mutableStateOf(false) }
+    var packingChoice by rememberSaveable(original.id) { mutableStateOf(original.title.isBlank()) }
+    var uploadStep by rememberSaveable { mutableStateOf(false) }
     var guideStep by rememberSaveable { mutableIntStateOf(0) }
     var scannerOpen by rememberSaveable { mutableStateOf(false) }
     var cameraPath by rememberSaveable { mutableStateOf("") }
@@ -69,6 +72,7 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
     fun add(uri: Uri, camera: Boolean = false, scannedCodes: List<String> = emptyList()) {
         if (working) return
         working = true
+        uploadStep = false
         scope.launch {
             var attached: Attachment? = null
             try {
@@ -77,8 +81,8 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
                 parcel = parcel.copy(attachments = parcel.attachments + attachment)
                 // Always decode locally first, including package photos and offline imports.
                 val local = runCatching { recognize(repo, attachment) }.getOrElse { ScanResult(emptyList(), "", emptyList(), Carrier.UNKNOWN) }
-                val result = local.copy(codes = (scannedCodes + local.codes).distinct().take(20))
-                parcel = applyLocalCodes(parcel, attachment, result.codes)
+                val result = local.copy(codes = (scannedCodes + local.codes).distinct().take(20), qrCodes = (scannedCodes + local.qrCodes).distinct().take(20))
+                parcel = applyLocalCodes(parcel, attachment, result.codes, result.qrCodes)
                 val stored = parcel.attachments.first { it.id == attachment.id }
                 if (kindName == "AUTO" && aiReady) {
                     val extraction = ParcelAi(repo).analyze(stored, result)
@@ -86,8 +90,8 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
                     guideStep = 1
                     onMessage("Erkannt. Wir gehen die Angaben kurz zusammen durch.")
                 } else if (result.codes.isNotEmpty() || kind in listOf(AttachmentKind.LABEL, AttachmentKind.ADDRESS)) {
-                    scan = result
-                }
+                    if (original.title.isBlank()) guideStep = 1 else scan = result
+                } else if (original.title.isBlank()) guideStep = 1
                 if (camera) File(cameraPath).delete()
             } catch (e: Exception) {
                 onMessage(e.message ?: "Anhang konnte nicht gelesen werden")
@@ -107,13 +111,15 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
             .onFailure { onMessage("Keine Kamera-App verfügbar. Bitte ein Foto auswählen.") }
         else onMessage("Zum Fotografieren bitte die Kamera erlauben oder ein Foto auswählen.")
     }
-    LaunchedEffect(original.id) {
+    LaunchedEffect(original.id, aiReady, packingChoice) {
+        if (packingChoice) return@LaunchedEffect
+        if (aiState.enabled && !aiReady) return@LaunchedEffect
         val pending = parcel.attachments.filter { !it.aiAnalyzed }
         if (pending.isNotEmpty()) {
             working = true
             try { pending.forEach { a ->
                 val local = runCatching { recognize(repo, a) }.getOrElse { ScanResult(a.rawCodes, "", emptyList(), Carrier.UNKNOWN) }
-                parcel = applyLocalCodes(parcel, a, local.codes)
+                parcel = applyLocalCodes(parcel, a, local.codes, local.qrCodes)
                 val stored = parcel.attachments.first { it.id == a.id }
                 if (aiReady) parcel = applyExtraction(parcel, stored, ParcelAi(repo).analyze(stored, local))
             }; if (aiReady || parcel.attachments.any { it.rawCodes.isNotEmpty() }) guideStep = 1 }
@@ -164,7 +170,7 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
                 AttachmentRow(repo, a, onOpen = { viewer = a }, onScan = {
                     if (!working) { working = true; scope.launch { try {
                         val result = recognize(repo, a)
-                        parcel = applyLocalCodes(parcel, a, result.codes)
+                        parcel = applyLocalCodes(parcel, a, result.codes, result.qrCodes)
                         scan = result
                     } catch (e: Exception) { onMessage("Erkennung fehlgeschlagen: ${e.message}") } finally { working = false } } }
                 }, onRemove = { parcel = parcel.copy(attachments = parcel.attachments.filterNot { it.id == a.id }) })
@@ -176,7 +182,7 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
             item { ChoiceField("Status", parcel.status.label, ParcelStatus.entries.map { it.label }) { label -> parcel = parcel.copy(status = ParcelStatus.entries.first { it.label == label }) } }
             item { ActionRow(Icons.Outlined.CalendarMonth, if (parcel.dueDate.isBlank()) "Abgabefrist auswählen" else "Abgeben bis ${parcel.dueDate}", "Optionale Erinnerung, bevor die Frist verstreicht", { dateDialog = true }); if (parcel.dueDate.isNotBlank()) TextButton(onClick = { parcel = parcel.copy(dueDate = "") }) { Text("Frist entfernen") } }
             item { EditField("Notizen", parcel.notes, { parcel = parcel.copy(notes = it) }, multiline = true, placeholder = "Inhalt, Größe, Besonderheiten …") }
-            item { HorizontalDivider(); Spacer(Modifier.height(14.dp)); SectionTitle("Automatische Updates", "Optional über dein eigenes TrackingMore-Konto.") }
+            item { HorizontalDivider(); Spacer(Modifier.height(14.dp)); SectionTitle("Sendungsverfolgung", "Mit einer Sendungsnummer kannst du die Anbieterseite kostenlos öffnen. Automatische Updates über TrackingMore bleiben optional.") }
             item { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("Dieses Paket automatisch verfolgen", style = MaterialTheme.typography.titleSmall); Text("Sendungsnummer + Anbieter werden an TrackingMore gesendet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }; Switch(parcel.autoTrack, {
                 if (it && !ApiKeyStore(context).hasKey()) onMessage("Zuerst unter Sicherung einen API-Schlüssel einrichten")
                 else if (it && (parcel.trackingNumber.isBlank() || parcel.apiCourier.isBlank())) onMessage("Bitte zuerst Sendungsnummer und Anbieter eintragen")
@@ -199,7 +205,17 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
         scan = null; guideStep = 1
     }, onCandidate = { c -> parcel = parcel.copy(trackingNumber = c.number, carrier = if (c.carrier == Carrier.UNKNOWN) parcel.carrier else c.carrier); scan = null },
         onText = { asAddress -> parcel = if (asAddress) parcel.copy(address = result.text) else parcel.copy(notes = listOf(parcel.notes, result.text).filter { it.isNotBlank() }.joinToString("\n\n")); scan = null }) }
-    if (guideStep > 0 && !working) IntakeGuide(parcel, guideStep, { parcel = it }, { guideStep = it })
+    if (packingChoice) PackingChoice(onChoose = { parcel = parcel.copy(status = it); packingChoice = false; uploadStep = parcel.attachments.isEmpty() }, onCancel = onBack)
+    if (uploadStep && !scannerOpen && !working) IntakeUpload(aiReady,
+        onFile = { kindName = if (aiReady) "AUTO" else AttachmentKind.LABEL.name; picker.launch(arrayOf("image/jpeg", "image/png", "image/webp", "application/pdf")) },
+        onScanner = { if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) scannerOpen = true else scannerPermission.launch(android.Manifest.permission.CAMERA) },
+        onCamera = {
+            val file = File(context.cacheDir, "shared/camera-${System.currentTimeMillis()}.jpg").apply { parentFile?.mkdirs(); createNewFile() }; cameraPath = file.path
+            kindName = if (aiReady) "AUTO" else AttachmentKind.PHOTO.name
+            if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) camera.launch(FileProvider.getUriForFile(context, "${context.packageName}.files", file)) else photoPermission.launch(android.Manifest.permission.CAMERA)
+        }, onManual = { uploadStep = false; guideStep = 1 })
+    if (working) RecognitionProgress(aiReady)
+    if (guideStep > 0 && !working && !packingChoice && !uploadStep) IntakeGuide(parcel, guideStep, { parcel = it }, { guideStep = it }, onComplete = onSave)
     if (scannerOpen) LiveScanner(onDismiss = { scannerOpen = false }, onCaptured = { uri, codes, file ->
         scannerOpen = false
         cameraPath = file.path
@@ -254,6 +270,8 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
     var viewer by remember { mutableStateOf<Attachment?>(null) }
     var delete by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val printScope = rememberCoroutineScope()
+    var printError by remember { mutableStateOf("") }
     val photo = p.attachments.firstOrNull { it.hasKind(AttachmentKind.PHOTO) && it.mime.startsWith("image/") }
     val label = p.attachments.firstOrNull { it.hasKind(AttachmentKind.LABEL) }
     Column(Modifier.fillMaxSize()) {
@@ -264,13 +282,13 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
             if (label != null) item { Button(onClick = { viewer = label }, modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp), shape = RoundedCornerShape(22.dp)) { Icon(Icons.Outlined.QrCode2, null, Modifier.size(28.dp)); Spacer(Modifier.width(12.dp)); Text("Versandlabel / QR anzeigen", style = MaterialTheme.typography.titleMedium) } }
             if (label == null) item { InfoCard(Icons.Outlined.AttachFile, "Versandlabel fehlt noch", "Über den Stift kannst du einen Screenshot, ein Foto oder eine PDF hinzufügen.", MaterialTheme.colorScheme.tertiaryContainer) }
             item { Surface(shape = RoundedCornerShape(26.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) { Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                DetailLine("Empfänger", p.recipient.ifBlank { "Noch nicht eingetragen" }); if (p.address.isNotBlank()) DetailLine("Adresse", p.address); if (p.location.isNotBlank()) DetailLine("Liegt bei", p.location); if (p.dueDate.isNotBlank()) DetailLine("Abgabefrist", p.dueDate); if (p.notes.isNotBlank()) DetailLine("Notizen", p.notes); if (p.orderNumber.isNotBlank()) DetailLine("Bestellnummer", p.orderNumber); if (p.aiSummary.isNotBlank()) DetailLine("Erkennungshinweis", p.aiSummary)
+                DetailLine("Erfasst am", readableTime(p.createdAt)); DetailLine("Empfänger", p.recipient.ifBlank { "Noch nicht eingetragen" }); if (p.address.isNotBlank()) DetailLine("Adresse", p.address); if (p.location.isNotBlank()) DetailLine("Liegt bei", p.location); if (p.dueDate.isNotBlank()) DetailLine("Abgabefrist", p.dueDate); if (p.notes.isNotBlank()) DetailLine("Notizen", p.notes); if (p.orderNumber.isNotBlank()) DetailLine("Bestellnummer", p.orderNumber); if (p.aiSummary.isNotBlank()) DetailLine("Erkennungshinweis", p.aiSummary)
             } } }
             item { ChoiceField("Status ändern", p.status.label, ParcelStatus.entries.map { it.label }) { labelText -> onStatus(ParcelStatus.entries.first { it.label == labelText }) } }
             item { SectionTitle("Sendungsverfolgung", p.trackingNumber.ifBlank { "Noch keine Sendungsnummer eingetragen" }) }
             if (p.trackingNumber.isNotBlank()) item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 val url = p.carrier.trackingUrl(p.trackingNumber)
-                if (url != null) FilledTonalButton(onClick = { openWeb(context, url) }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.OpenInNew, null); Spacer(Modifier.width(6.dp)); Text("Beim Anbieter") }
+                if (url != null) FilledTonalButton(onClick = { openWeb(context, url) }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.OpenInNew, null); Spacer(Modifier.width(6.dp)); Text("Kostenlos verfolgen") }
                 OutlinedButton(onClick = { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Sendungsnummer", p.trackingNumber)) }) { Icon(Icons.Outlined.ContentCopy, "Sendungsnummer kopieren") }
             } }
             if (p.trackingSummary.isNotBlank()) item { InfoCard(Icons.Outlined.LocalShipping, p.trackingSummary, "Geprüft: ${readableTime(p.trackingCheckedAt)}") }
@@ -279,6 +297,13 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
             if (!p.autoTrack) item { Text("Automatische Updates sind für dieses Paket aus. Du kannst sie beim Bearbeiten einschalten, sobald ein API-Schlüssel eingerichtet ist.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             if (p.attachments.isNotEmpty()) item { Text("Alle Anhänge", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
             items(p.attachments, key = { it.id }) { a -> AttachmentRow(repo, a, { viewer = a }) }
+            item { OutlinedButton(onClick = { printScope.launch {
+                runCatching {
+                    val file = File(context.cacheDir, "shared/Verlauf-${p.id}.pdf")
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ParcelPdf.history(file, p) }
+                    printPdf(context, file, "${p.code} Versandübersicht")
+                }.onFailure { printError = "Die Übersicht konnte nicht gedruckt werden." }
+            } }, modifier = Modifier.fillMaxWidth()) { Text("Paketverlauf als PDF / drucken") }; if (printError.isNotBlank()) Text(printError) }
             item { Text("Paketverlauf", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
             items(p.events.sortedByDescending { it.at }) { e -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { Icon(Icons.Outlined.CheckCircle, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary); Column { Text(e.text, style = MaterialTheme.typography.bodyMedium); Text("${readableTime(e.at)} · ${e.source}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } } }
             item { TextButton(onClick = { delete = true }) { Icon(Icons.Outlined.DeleteOutline, null); Spacer(Modifier.width(8.dp)); Text("Paket entfernen") }; Spacer(Modifier.height(24.dp)) }

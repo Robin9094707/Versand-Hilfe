@@ -1,69 +1,66 @@
 package de.rj.versandhilfe
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material3.*
+import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
-/** Follow-up questions are local: no extra paid model turns and no invented facts. */
-@Composable fun IntakeGuide(parcel: Parcel, step: Int, onChange: (Parcel) -> Unit, onStep: (Int) -> Unit) {
+@Composable fun IntakeGuide(parcel: Parcel, step: Int, onChange: (Parcel) -> Unit, onStep: (Int) -> Unit, onComplete: ((Parcel) -> Unit)? = null) {
     var title by rememberSaveable(step) { mutableStateOf(parcel.title) }
     var name by rememberSaveable(step) { mutableStateOf(parcel.recipient) }
     var address by rememberSaveable(step) { mutableStateOf(parcel.address) }
     var location by rememberSaveable(step) { mutableStateOf(parcel.location) }
+    var notes by rememberSaveable(step) { mutableStateOf(parcel.notes) }
+    var due by rememberSaveable(step) { mutableStateOf(parcel.dueDate) }
     val allCodes = parcel.attachments.flatMap { it.rawCodes }
     val codes = remember(allCodes) { ShippingCodeParser.analyze(allCodes) }
-    val known = codes.recipient
     val pending = ParcelFacts.pending(parcel)
-    val complete = parcel.title.isNotBlank() && parcel.recipient.isNotBlank() && parcel.location.isNotBlank()
-    AlertDialog(onDismissRequest = { onStep(0) }, icon = { Icon(Icons.Outlined.Inventory2, null) }, title = { Text(when (step) {
-        1 -> "Was ist im Paket?"; 2 -> "Für wen ist das Paket?"; 3 -> "Wo liegt das Paket?"; else -> "Alles richtig?"
-    }) }, text = {
-        Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Schritt $step von 4", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-            when (step) {
-                1 -> { Text("Gib dem Paket einen Namen, den du gut wiedererkennst."); EditField("Was verschickst du?", title, { title = it }, placeholder = "Zum Beispiel: Blaue Jeans") }
-                2 -> {
-                    Text(if (known != null) "Dieser Empfänger steht im QR-Code. Der Absender wird nicht als Empfänger verwendet." else "Bitte prüfe die Zieladresse. Wenn sie nicht sicher lesbar ist, trage sie selbst ein oder ergänze sie später.")
-                    if (codes.needsChoice) Text("Die Codes passen nicht eindeutig zu einem Empfänger. Bitte wähle selbst die richtige Zieladresse.", color = MaterialTheme.colorScheme.error)
-                    codes.recipients.forEach { recipient ->
-                        OutlinedCard(onClick = { name = recipient.name; address = recipient.address }) {
-                            Column(Modifier.padding(12.dp)) { Text(recipient.name, fontWeight = FontWeight.Bold); Text(recipient.address); Text("Diesen QR-Empfänger übernehmen", color = MaterialTheme.colorScheme.primary) }
-                        }
-                    }
-                    EditField("Empfänger / Benutzername", name, { name = it })
-                    EditField("Zieladresse (falls bekannt)", address, { address = it }, multiline = true)
+    val ready = title.isNotBlank() && name.isNotBlank() && location.isNotBlank()
+    val validDate = due.isBlank() || runCatching { java.time.LocalDate.parse(due) }.isSuccess
+    fun finish(status: ParcelStatus) {
+        val result = parcel.copy(title = title.trim(), recipient = name.trim(), address = address.trim(), location = location.trim(), notes = notes.trim(), dueDate = due.trim(), status = status, aiReviewRequired = false)
+        onChange(result); onStep(0); onComplete?.invoke(result)
+    }
+    FlowWindow(when (step) { 1 -> "Was ist im Paket?"; 2 -> "Für wen ist das Paket?"; 3 -> "Wo liegt das Paket?"; else -> "Alles richtig?" }, "${parcel.code} · Schritt $step von 4", .3f + step * .175f, bottom = {
+        if (step < 4) {
+            Button(onClick = {
+                onChange(when (step) { 1 -> parcel.copy(title = title.trim()); 2 -> parcel.copy(recipient = name.trim(), address = address.trim()); else -> parcel.copy(location = location.trim()) })
+                onStep(step + 1)
+            }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Weiter") }
+        } else {
+            Button(onClick = { finish(if (pending) parcel.status else parcel.status) }, enabled = title.isNotBlank() && validDate && (parcel.status != ParcelStatus.READY || ready), modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
+                Text(when { !pending -> "Angaben übernehmen"; parcel.status == ParcelStatus.READY -> "Bereit zum Abgeben · speichern"; else -> "In Vorbereitung speichern" })
+            }
+            if (pending && parcel.status == ParcelStatus.READY) TextButton(onClick = { finish(ParcelStatus.DRAFT) }, enabled = title.isNotBlank() && validDate) { Text("Erst einmal anlegen") }
+            if (pending && parcel.status == ParcelStatus.DRAFT) TextButton(onClick = { finish(ParcelStatus.READY) }, enabled = ready && validDate) { Text("Bereit zum Abgeben") }
+        }
+        TextButton(onClick = { onStep(0) }) { Text("Im Formular weiter") }
+    }) {
+        when (step) {
+            1 -> { Text("Gib dem Paket einen Namen, den du gut wiedererkennst."); EditField("Was verschickst du?", title, { title = it }, placeholder = "Zum Beispiel: Blaue Jeans") }
+            2 -> {
+                Text(if (codes.recipient != null) "Dieser Empfänger steht im QR-Code. Der Absender wird nicht als Empfänger verwendet." else "Bitte prüfe die Zieladresse. Unklare Angaben kannst du selbst ergänzen.")
+                if (codes.needsChoice) Text("Die Codes gehören nicht eindeutig zu einem Empfänger. Bitte wähle die richtige Zieladresse.", color = MaterialTheme.colorScheme.error)
+                codes.recipients.forEach { recipient ->
+                    OutlinedCard(onClick = { name = recipient.name; address = recipient.address }) { Column(Modifier.padding(16.dp)) { Text(recipient.name, fontWeight = FontWeight.Bold); Text(recipient.address); Text("Diesen Empfänger übernehmen", color = MaterialTheme.colorScheme.primary) } }
                 }
-                3 -> { Text("So findest du es später zwischen den anderen Kartons."); EditField("Lagerplatz", location, { location = it }, placeholder = "Zum Beispiel: Flur, linkes Regal") }
-                else -> {
-                    Text(parcel.title.ifBlank { "Paketname fehlt noch" }, fontWeight = FontWeight.Bold)
-                    Text("Für: ${parcel.recipient.ifBlank { "noch offen" }}")
-                    if (parcel.address.isNotBlank()) Text(parcel.address)
-                    Text("Liegt bei: ${parcel.location.ifBlank { "noch offen" }}")
-                    Text("Abgeben bis: ${parcel.dueDate.ifBlank { "keine bestätigte Frist" }}")
-                    if (parcel.aiSummary.isNotBlank()) Text(parcel.aiSummary.take(900), style = MaterialTheme.typography.bodySmall)
-                    Text(if (pending) "Du entscheidest: Ist es fertig gepackt oder möchtest du es erst einmal anlegen?" else "Der Versandstatus bleibt: ${parcel.status.label}.")
-                    if (pending && !complete) Text("Für „Bereit“ fehlen noch Paketname, Empfänger oder Lagerplatz. Du kannst es erst einmal in Vorbereitung speichern.")
-                    Text("Danach unten auf „Paket speichern“ tippen.", style = MaterialTheme.typography.labelMedium)
-                }
+                EditField("Empfänger / Benutzername", name, { name = it }); EditField("Zieladresse (falls bekannt)", address, { address = it }, multiline = true)
+            }
+            3 -> { Text("So findest du es später zwischen den anderen Kartons."); EditField("Lagerplatz", location, { location = it }, placeholder = "Zum Beispiel: Flur, linkes Regal"); InfoCard(androidx.compose.material.icons.Icons.Outlined.Inventory2, "Schreib ${parcel.code} auf den Karton", "Die Nummer gehört in der App und auf dem Paket zusammen. Das Beschriften ist freiwillig.") }
+            else -> {
+                Text("Prüfe die Angaben. Hier kannst du alles noch ergänzen.")
+                EditField("Paketname", title, { title = it }); EditField("Empfänger", name, { name = it }); EditField("Zieladresse", address, { address = it }, multiline = true); EditField("Lagerplatz", location, { location = it })
+                EditField("Abgeben bis (JJJJ-MM-TT, optional)", due, { due = it })
+                if (!validDate) Text("Bitte ein Datum wie 2026-11-27 eingeben oder leer lassen.", color = MaterialTheme.colorScheme.error)
+                EditField("Notizen", notes, { notes = it }, multiline = true)
+                if (parcel.aiSummary.isNotBlank()) Text(parcel.aiSummary, style = MaterialTheme.typography.bodySmall)
+                if (pending && parcel.status == ParcelStatus.READY && !ready) Text("Für „Bereit“ fehlen Paketname, Empfänger oder Lagerplatz. Du kannst es erst einmal in Vorbereitung speichern.")
+                if (!pending) Text("Der Versandstatus bleibt: ${parcel.status.label}.")
             }
         }
-    }, confirmButton = {
-        if (step < 4) Button(onClick = {
-            onChange(when (step) { 1 -> parcel.copy(title = title.trim()); 2 -> parcel.copy(recipient = name.trim(), address = address.trim()); else -> parcel.copy(location = location.trim()) })
-            onStep(step + 1)
-        }) { Text("Weiter") }
-        else if (!pending) Button(onClick = { onChange(parcel.copy(aiReviewRequired = false)); onStep(0) }) { Text("Angaben übernehmen") }
-        else Button(onClick = { onChange(parcel.copy(status = ParcelStatus.READY, aiReviewRequired = false)); onStep(0) }, enabled = complete) { Text("Bereit zum Abgeben") }
-    }, dismissButton = {
-        if (step == 4 && pending) TextButton(onClick = { onChange(parcel.copy(status = ParcelStatus.DRAFT, aiReviewRequired = false)); onStep(0) }) { Text("Erst einmal anlegen") }
-        else TextButton(onClick = { onStep(0) }) { Text("Im Formular weiter") }
-    })
+    }
 }

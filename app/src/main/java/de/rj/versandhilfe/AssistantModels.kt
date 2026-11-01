@@ -11,7 +11,9 @@ const val AI_MODEL = "gpt-5.6-luna"
     val reminders: Boolean = true, val reminderHour: Int = 9,
     val encryptedKeys: String = "", val updatedAt: Long = 0,
     val usageDate: String = "", val calls: Int = 0, val inputTokens: Long = 0, val outputTokens: Long = 0,
-    val messages: List<ParcelChatMessage> = emptyList()
+    val messages: List<ParcelChatMessage> = emptyList(),
+    val numberDigits: Int = 2, val nextPackageNumber: Int = 1, val profileComplete: Boolean = false,
+    val reminderEveryHours: Int = 24, val fullScreenReminders: Boolean = true
 )
 @Serializable data class ParcelChatMessage(
     val id: String = UUID.randomUUID().toString(), val role: String, val text: String,
@@ -27,7 +29,7 @@ const val AI_MODEL = "gpt-5.6-luna"
     val dueDate: ExtractedField? = null, val summary: String = "", val warning: String = "",
     val recipientRole: AddressRole = AddressRole.UNCERTAIN, val senderName: ExtractedField? = null,
     val senderAddress: ExtractedField? = null, val localCodes: List<String> = emptyList(),
-    val localText: String = "", val sourceScanned: Boolean = false
+    val localQrCodes: List<String> = emptyList(), val localText: String = "", val sourceScanned: Boolean = false
 )
 @Serializable enum class ParcelIntent { SUMMARY, DUE, OVERDUE, READY, IN_TRANSIT, DELIVERED, FIND, HELP, REFUSE }
 @Serializable data class ParcelQuery(val intent: ParcelIntent, val search: String = "", val days: Int = 3, val helpTopic: String = "")
@@ -95,7 +97,7 @@ fun applyExtraction(p: Parcel, attachment: Attachment, e: AiExtraction): Parcel 
     val kinds = e.kinds.distinct().ifEmpty { listOf(attachment.kind) }
     val primary = listOf(AttachmentKind.LABEL, AttachmentKind.ADDRESS, AttachmentKind.RECEIPT, AttachmentKind.PHOTO).first { it in kinds }
     val raw = (attachment.rawCodes + e.localCodes).distinct().filter { it.length <= 12000 }.take(20)
-    val mapped = attachment.copy(kind = primary, detectedKinds = kinds, aiAnalyzed = true, rawCodes = raw)
+    val mapped = attachment.copy(kind = primary, detectedKinds = kinds, aiAnalyzed = true, rawCodes = raw, qrCodes = (attachment.qrCodes + e.localQrCodes).distinct().filter { it in raw }.take(20))
     val codes = ShippingCodeParser.analyze(raw)
     val evidence = linkedMapOf<String, String>()
     fun value(name: String, field: ExtractedField?, current: String): String {
@@ -144,5 +146,5 @@ fun applyExtraction(p: Parcel, attachment: Attachment, e: AiExtraction): Parcel 
     return applyLocalCodes(p.copy(title = title, recipient = recipient, address = address, platform = platform, orderNumber = order,
         trackingNumber = tracking, dueDate = due, carrier = if (p.carrier == Carrier.UNKNOWN) carrier else p.carrier,
         attachments = p.attachments.map { if (it.id == attachment.id) mapped else it },
-        aiSummary = summary, aiEvidence = p.aiEvidence + evidence, aiReviewRequired = true), mapped, raw)
+        aiSummary = summary, aiEvidence = p.aiEvidence + evidence, aiReviewRequired = true), mapped, raw, mapped.qrCodes)
 }
