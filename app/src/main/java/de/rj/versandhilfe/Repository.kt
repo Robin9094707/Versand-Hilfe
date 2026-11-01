@@ -46,6 +46,9 @@ class ParcelRepository(val context: Context) {
     private val mutex = Mutex()
     private val _parcels = MutableStateFlow<List<Parcel>>(emptyList())
     val parcels = _parcels.asStateFlow()
+    private val _assistant = MutableStateFlow(AssistantState())
+    val assistant = _assistant.asStateFlow()
+    fun snapshot() = Archive(parcels = _parcels.value, assistant = _assistant.value)
     val backupMessage = MutableStateFlow("Sicherung wird geprüft …")
     val loaded = MutableStateFlow(false)
     val loadError = MutableStateFlow<String?>(null)
@@ -61,6 +64,7 @@ class ParcelRepository(val context: Context) {
                     val archive = manifest.openRead().use { AppJson.decodeFromString<Archive>(it.readLimited(8L * 1024 * 1024).decodeToString()) }
                     validateArchive(archive)
                     _parcels.value = archive.parcels
+                    _assistant.value = archive.assistant
                 }
                 backupMessage.value = if (prefs.getBoolean("dirty", false)) "Änderungen noch nicht im Sicherungsordner" else if (lastBackup > 0) "Im gewählten Ordner gesichert" else "Noch keine Sicherung"
             } catch (e: Exception) {
@@ -69,15 +73,64 @@ class ParcelRepository(val context: Context) {
             loaded.value = true
         }
     }
-    private fun writeLocal(items: List<Parcel>) {
+    private fun writeLocal(items: List<Parcel>, assistant: AssistantState = _assistant.value) {
         val stream = manifest.startWrite()
         try {
-            stream.write(AppJson.encodeToString(Archive(parcels = items)).toByteArray())
+            stream.write(AppJson.encodeToString(Archive(parcels = items, assistant = assistant)).toByteArray())
             manifest.finishWrite(stream)
         } catch (e: Exception) { manifest.failWrite(stream); throw e }
         _parcels.value = items
+        _assistant.value = assistant
         loadError.value = null
         prefs.edit().putBoolean("dirty", true).apply()
+    }
+    private fun mergeAssistant(local: AssistantState, incoming: AssistantState): AssistantState {
+        val newest = if (incoming.updatedAt > local.updatedAt) incoming else local
+        val messages = (local.messages + incoming.messages).distinctBy { it.id }.sortedBy { it.at }.takeLast(80)
+        return newest.copy(messages = messages)
+    }
+    suspend fun modifyAssistant(transform: (AssistantState) -> AssistantState) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            require(loadError.value == null) { "Bitte zuerst eine Sicherung wiederherstellen." }
+            val next = transform(_assistant.value).copy(updatedAt = System.currentTimeMillis())
+            require(next.dailyLimit in 1..50 && next.name.length <= 80)
+            writeLocal(_parcels.value, next)
+            backupLocked()
+        }
+    }
+    suspend fun configureAssistant(name: String, apiKey: String?, password: String, enabled: Boolean) = withContext(Dispatchers.IO) {
+        val vault = SecretVault(context)
+        val envelope = vault.envelope(password, openAiValue = apiKey?.trim()?.takeIf { it.isNotEmpty() })
+        apiKey?.trim()?.takeIf { it.isNotBlank() }?.let { vault.openAi.save(it) }
+        vault.rememberPassword(password)
+        require(!enabled || vault.openAi.hasKey()) { "Bitte einen OpenAI-Schlüssel eintragen." }
+        modifyAssistant { it.copy(name = name.trim().take(80), enabled = enabled, encryptedKeys = envelope) }
+    }
+    suspend fun saveTrackingKey(key: String) = withContext(Dispatchers.IO) {
+        val vault = SecretVault(context)
+        val envelope = vault.envelope(trackingValue = key)
+        vault.tracking.save(key)
+        modifyAssistant { it.copy(encryptedKeys = envelope) }
+    }
+    suspend fun unlockKeys(password: String) = withContext(Dispatchers.IO) {
+        SecretVault(context).unlock(_assistant.value.encryptedKeys, password)
+        modifyAssistant { it }
+    }
+    suspend fun reserveAiCall() = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            require(SecretVault(context).ready(_assistant.value)) { "KI-Modus ist aus oder der Schlüssel muss entsperrt werden." }
+            val today = java.time.LocalDate.now().toString()
+            val current = _assistant.value
+            val count = if (current.usageDate == today) current.calls else 0
+            require(count < current.dailyLimit) { "Dein Tageslimit von ${current.dailyLimit} KI-Aufrufen ist erreicht. Morgen geht es weiter." }
+            writeLocal(_parcels.value, current.copy(usageDate = today, calls = count + 1, inputTokens = if (current.usageDate == today) current.inputTokens else 0, outputTokens = if (current.usageDate == today) current.outputTokens else 0, updatedAt = System.currentTimeMillis()))
+        }
+    }
+    suspend fun recordAiUsage(input: Long, output: Long) = modifyAssistant {
+        it.copy(inputTokens = it.inputTokens + input.coerceAtLeast(0), outputTokens = it.outputTokens + output.coerceAtLeast(0))
+    }
+    suspend fun addChat(question: String, answer: ParcelAnswer) = modifyAssistant {
+        it.copy(messages = (it.messages + listOf(ParcelChatMessage(role = "user", text = question.take(1000)), ParcelChatMessage(role = "assistant", text = answer.text.take(12000), parcelIds = answer.parcels.map { p -> p.id }))).takeLast(80))
     }
     suspend fun save(parcel: Parcel): Parcel = withContext(Dispatchers.IO) {
         mutex.withLock {
@@ -167,7 +220,7 @@ class ParcelRepository(val context: Context) {
                     require(digest(bytes) == a.sha256) { "Ein Anhang ist beschädigt." }
                     writeAsset(a.file, bytes)
                 }
-                writeLocal(mergeParcels(_parcels.value, inspection.archive.parcels))
+                writeLocal(mergeParcels(_parcels.value, inspection.archive.parcels), mergeAssistant(_assistant.value, inspection.archive.assistant))
             }
             prefs.edit().putString("folder", inspection.uri.toString()).putString("folderName", inspection.name).putBoolean("onboarded", true).commit()
             backupLocked()
@@ -193,7 +246,7 @@ class ParcelRepository(val context: Context) {
                     require(verified == a.sha256) { "Sicherungsprüfung fehlgeschlagen." }
                 }
             }
-            val json = AppJson.encodeToString(Archive(parcels = _parcels.value)).toByteArray()
+            val json = AppJson.encodeToString(snapshot()).toByteArray()
             val snapshot = snapshots.createFile("application/json", "${System.currentTimeMillis()}-${UUID.randomUUID()}.json") ?: error("Sicherung konnte nicht erstellt werden.")
             try {
                 context.contentResolver.openOutputStream(snapshot.uri, "wt")!!.use { it.write(json) }
@@ -218,7 +271,7 @@ class ParcelRepository(val context: Context) {
             require(allAssets.size < 2000 && allAssets.sumOf { File(assets, it.file).length() } <= MAX_ARCHIVE - 8L * 1024 * 1024) { "Für ZIP-Backups maximal 2.000 Dateien und 500 MB. Bitte die vollständige Ordnersicherung verwenden." }
             val stream = context.contentResolver.openOutputStream(uri, "wt") ?: error("Export nicht möglich.")
             ZipOutputStream(stream).use { zip ->
-                zip.putNextEntry(ZipEntry("versandhilfe.json")); zip.write(AppJson.encodeToString(Archive(parcels = _parcels.value)).toByteArray()); zip.closeEntry()
+                zip.putNextEntry(ZipEntry("versandhilfe.json")); zip.write(AppJson.encodeToString(snapshot()).toByteArray()); zip.closeEntry()
                 _parcels.value.flatMap { it.attachments }.distinctBy { it.file }.forEach { a ->
                     val bytes = File(assets, a.file).readBytes()
                     require(digest(bytes) == a.sha256) { "Anhang beschädigt." }
@@ -256,7 +309,7 @@ class ParcelRepository(val context: Context) {
             }
             mutex.withLock {
                 archive.parcels.flatMap { it.attachments }.distinctBy { it.file }.forEach { a -> writeAsset(a.file, File(stage, "assets/${a.file}").readBytes()) }
-                writeLocal(mergeParcels(_parcels.value, archive.parcels))
+                writeLocal(mergeParcels(_parcels.value, archive.parcels), mergeAssistant(_assistant.value, archive.assistant))
                 backupLocked()
             }
             archive.parcels.size

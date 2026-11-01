@@ -6,7 +6,7 @@ Eine native Android-App für die vielen Pakete zu Hause: Paketfoto, Versandlabel
 
 1. [GitHub Actions → Android APK](https://github.com/Robin9094707/Versand-Hilfe/actions/workflows/android.yml) öffnen.
 2. Den letzten erfolgreichen Lauf wählen und unter **Artifacts** `Versandhilfe-Android-APK` herunterladen (GitHub-Anmeldung nötig).
-3. ZIP entpacken, `Versandhilfe-1.0.0.apk` auf dem Android-Handy öffnen. Installation aus dieser Quelle erlauben.
+3. ZIP entpacken, `Versandhilfe-2.0.0.apk` auf dem Android-Handy öffnen. Installation aus dieser Quelle erlauben.
 4. Beim Start einen eigenen Ordner auswählen, z. B. **Dokumente/Versandhilfe-Daten**. Android/data und Android/obb eignen sich nicht.
 
 Das ist eine installierbare Test-APK, keine Play-Store-Veröffentlichung. Der CI-Debug-Schlüssel wird zwischen Builds gecacht, damit Updates normalerweise ohne Neuinstallation funktionieren. Bei gelöschtem Cache kann sich die Testsignatur ändern; vorher ZIP exportieren. Für einen dauerhaften Release einen eigenen geschützten Signierschlüssel einrichten.
@@ -46,9 +46,9 @@ Die gebündelten ML-Kit-Modelle lesen QR-/Barcodes und lateinischen Text auf dem
 
 - DHL, Hermes, DPD, UPS, GLS, FedEx und Deutsche Post: direkte Links zur offiziellen Sendungsverfolgung mit manuell oder bestätigt erkannter Nummer. Die Anbieter-Webseite kann zusätzlich die PLZ abfragen.
 - **Automatisch:** optionale TrackingMore-V4-Integration. Eigenes Konto/API-Schlüssel und je nach Anbieter/Tarif kostenpflichtiges API-Kontingent erforderlich. Unter Sicherung zustimmen und Schlüssel speichern; danach pro Paket aktivieren.
-- Die App sendet nur Sendungsnummer und Anbieter-Code an TrackingMore, keine Fotos, Adressen oder Notizen. Der Schlüssel wird mit Android Keystore verschlüsselt und nicht exportiert. Nach Neuinstallation erneut einrichten.
+- Die App sendet nur Sendungsnummer und Anbieter-Code an TrackingMore, keine Fotos, Adressen oder Notizen. Der Schlüssel wird mit Android Keystore verschlüsselt und ab Version 2.0 passwortgeschützt mitgesichert. Siehe den Abschnitt zum KI-Modus.
 - Die voreingestellten deutschen Anbieter werden gegen die aktuelle API-Anbieterliste aufgelöst. Für weitere Anbieter einen TrackingMore-Anbieter-Code manuell eintragen. Kein Anspruch auf Unterstützung sämtlicher Versandprodukte; Anbieter-Codes können angepasst werden.
-- WorkManager prüft ungefähr alle sechs Stunden; Online-Tracking benötigt Internet, lokale Sicherung und Erinnerungen können auch offline laufen. Android kann Arbeit verschieben. Änderungen erzeugen bei erlaubten Benachrichtigungen eine Meldung; Fristerinnerungen werden höchstens einmal täglich ausgegeben. „Tracking jetzt aktualisieren“ ist ebenfalls verfügbar.
+- WorkManager prüft die lokalen Aufgaben ungefähr stündlich; Online-Tracking frühestens alle sechs Stunden je Paket. Lokale Sicherung und Erinnerungen können auch offline laufen. Android kann Arbeit verschieben. Änderungen erzeugen bei erlaubten Benachrichtigungen eine Meldung; Fristerinnerungen werden höchstens einmal täglich ausgegeben. „Tracking jetzt aktualisieren“ ist ebenfalls verfügbar.
 - Keine inoffiziellen Carrier-APIs und kein Scraping. Ohne echten API-Schlüssel konnte das produktive Tracking nicht gegen ein Kundenkonto getestet werden.
 
 ## Entwicklung & Prüfung
@@ -63,3 +63,23 @@ Android Studio, JDK 17 und SDK 36; Gradle 8.13. In Android Studio öffnen oder m
 Material 3 **1.4.0** ist die am 01.11.2026 verifizierte stabile Version. Reproduzierbare Toolchain: AGP 8.13.2, Kotlin 2.2.21, Compose BOM 2025.10.01. CI baut bei Push/PR und manuell. Ein zweiter Job führt Speicher-/ZIP- und Compose-Tests auf einem Android-35-Emulator aus und erstellt Screenshots. Berichte werden als Actions-Artefakte gespeichert.
 
 Quellen: [Material 3 Releases](https://developer.android.com/jetpack/androidx/releases/compose-material3), [Android Storage Access Framework](https://developer.android.com/training/data-storage/shared/documents-files), [ML Kit Barcode](https://developers.google.com/ml-kit/vision/barcode-scanning/android), [TrackingMore SDK / API V4](https://github.com/TrackingMore-API/trackingmore-sdk-python).
+
+## Neu in 2.0: optionaler OpenAI-Pakethelfer
+
+Unter **Sicherung → KI & dein Profil** Namen und Backup-Passwort (mindestens 10 Zeichen) eintragen. Danach eigenen OpenAI-API-Schlüssel hinterlegen, der Datenübertragung zustimmen und KI aktivieren. Die bestehende App bleibt ohne KI nutzbar. Kein ChatGPT-Login und kein fest eingebauter API-Schlüssel.
+
+Verwendet wird die offizielle **Responses API** (`POST https://api.openai.com/v1/responses`) mit **GPT-5.6 Luna**, `store:false`, `reasoning.effort:none`, strikten JSON-Schemas und begrenzter Ausgabelänge. Neue Fotos/Screenshots werden im Automatikmodus als Paket, Label, Adresse, Beleg oder Kombination eingeordnet. OCR/QR-Erkennung bleibt lokal verfügbar. Vorhandene Angaben werden nicht überschrieben. Auch geteilte Bilder/PDFs gehen zunächst in den Editor. Bei PDFs wird die erste Seite analysiert. Bilder werden für den Upload verkleinert; OpenAI erhält Bild und begrenzten OCR-Text. API-Schlüssel werden nie ins Repository, in Prompts oder in Protokolle geschrieben.
+
+**Prüfung statt Fehlerfreiheitsversprechen:** KI kann falsch lesen. Übernommene Felder zeigen Erkennungsquellen und müssen vor dem Speichern als geprüft bestätigt werden. „Erstellt am“ ist keine Abgabefrist. Relative Fristen alter Screenshots und Datumsangaben ohne nachvollziehbares Jahr werden nicht als sichere Frist übernommen. Bestellnummer und Sendungsnummer sind getrennt. KI verändert weder Paketstatus noch Tracking-Ergebnisse.
+
+Der Paket-Chat ist ein eingeschränkter Intent-Router, kein allgemeiner Chatbot: Offensichtliche sachfremde und gemischte Fragen werden vor dem Netzwerkaufruf abgelehnt. Für andere Paketfragen liefert das Modell ausschließlich einen erlaubten Such-/Filterauftrag. **Antworttexte, Zahlen, Termine und anklickbare Paketverweise werden dann lokal aus echten gespeicherten Daten erzeugt.** Es gibt keine frei formulierten Modellantworten, keine Modell-URLs und keine Schreibaktionen im Chat. Die Standardschaltflächen funktionieren ohne API-Aufruf. Umfangreiche freie Fragen sind absichtlich begrenzt und können abgewiesen werden.
+
+Ein App-Limit von standardmäßig 20 (wählbar 5/10/20/50) KI-Aufrufversuchen pro lokalem Kalendertag und kein automatischer Retry begrenzen die Nutzung. Auch fehlgeschlagene Versuche zählen. Die Verbrauchsanzeige ist eine Token-basierte Orientierung nach den am 01.11.2026 dokumentierten Luna-Preisen von 0,20 USD/Mio. Eingabe- und 1,20 USD/Mio. Ausgabetokens; maßgeblich ist die OpenAI-Abrechnung. Kein unbegrenzter Hintergrund-Chat. Die Startzusammenfassung, zeitabhängige Begrüßung, Fristberechnung und Erinnerungen werden lokal erzeugt und verbrauchen keine KI-Tokens.
+
+**Hintergrund:** WorkManager kontrolliert ungefähr stündlich die lokalen Aufgaben und erinnert frühestens zur gewählten Tageszeit höchstens einmal pro Tag. TrackingMore bleibt auf frühestens sechs Stunden je Paket begrenzt. Normales Schließen beendet geplante Arbeit nicht. Androids Akkuoptimierung/Doze kann sie verschieben; „Stopp erzwingen“ blockiert Hintergrundarbeit bis zum erneuten Öffnen. Benachrichtigungen müssen erlaubt sein. Kein Dauerbetrieb und keine exakten Uhrzeitversprechen.
+
+**Vollständiges Backup:** Name, KI-Modus, Limits, Erinnerungsoptionen, Chat (letzte 80 Nachrichten), Erkennungsquellen, Paketdaten und Anhänge werden in Ordner/ZIP gespeichert. OpenAI- und TrackingMore-Schlüssel werden zusätzlich als passwortgeschützter AES-256-GCM-Tresor mit zufälligem Salt/Nonce und PBKDF2-HMAC-SHA256 (210.000 Runden) mitgesichert. Lokal schützt Android Keystore Schlüssel und gespeichertes Backup-Passwort. Das Passwort selbst wird nicht exportiert. Nach Neuinstallation denselben Ordner/ZIP laden, dann **API-Schlüssel aus Backup entsperren**. Ohne korrektes Passwort sind die Schlüssel nicht wiederherstellbar; Paketdaten bleiben nutzbar. Andere Backup-Inhalte sind weiterhin unverschlüsselt. Alte Backups können ältere Schlüssel enthalten. Keine separate Datenmigration; die bestehenden JSON-Strukturen werden um optionale Felder ergänzt.
+
+Die HTTP-Anbindung wird mit MockWebServer einschließlich Authentifizierungsfehlern, unvollständigen Antworten und Refusals geprüft. Ohne echten Kundenschlüssel wurde kein kostenpflichtiger Live-API-Aufruf durchgeführt. Unter eigenem Schlüssel können Modellfreigaben, Guthaben und OpenAI-Limits abweichen.
+
+Offizielle Quellen: [GPT-5.6 Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna), [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs), [Vision](https://developers.openai.com/api/docs/guides/images-vision).

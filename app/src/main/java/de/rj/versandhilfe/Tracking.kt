@@ -35,17 +35,17 @@ class ShippingApp : Application() {
     override fun onCreate() {
         super.onCreate()
         getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel("shipping", "Paket-Updates & Fristen", NotificationManager.IMPORTANCE_DEFAULT))
-        val request = PeriodicWorkRequestBuilder<ShippingWorker>(6, TimeUnit.HOURS)
+        val request = PeriodicWorkRequestBuilder<ShippingWorker>(1, TimeUnit.HOURS)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.MINUTES).build()
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork("shipping-sync", ExistingPeriodicWorkPolicy.KEEP, request)
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork("shipping-sync", ExistingPeriodicWorkPolicy.UPDATE, request)
     }
 }
-class ApiKeyStore(private val context: Context) {
-    private val prefs = context.getSharedPreferences("tracking-key", Context.MODE_PRIVATE)
+class ApiKeyStore(private val context: Context, private val namespace: String = "tracking") {
+    private val prefs = context.getSharedPreferences(if (namespace == "tracking") "tracking-key" else "secret-$namespace", Context.MODE_PRIVATE)
     private fun key(): SecretKey {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        return (ks.getKey("shipping-api", null) as? SecretKey) ?: KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").run {
-            init(KeyGenParameterSpec.Builder("shipping-api", KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+        return (ks.getKey("shipping-api-$namespace", null) as? SecretKey) ?: KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").run {
+            init(KeyGenParameterSpec.Builder("shipping-api-$namespace", KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
             generateKey()
         }
@@ -186,16 +186,18 @@ class ShippingWorker(context: Context, params: WorkerParameters) : CoroutineWork
         if (repo.loadError.value != null) return Result.failure()
         var failed = !repo.backup()
         if (ApiKeyStore(applicationContext).hasKey()) {
-            repo.parcels.value.filter { it.autoTrack && it.status != ParcelStatus.DELIVERED && it.trackingNumber.isNotBlank() && it.apiCourier.isNotBlank() }.forEach {
+            repo.parcels.value.filter { it.autoTrack && it.status != ParcelStatus.DELIVERED && it.trackingNumber.isNotBlank() && it.apiCourier.isNotBlank() && System.currentTimeMillis() - it.trackingCheckedAt > 6 * 60 * 60 * 1000 }.forEach {
                 if (isStopped) return Result.retry()
                 runCatching { refreshTracking(repo, it) }.onFailure { failed = true }
                 kotlinx.coroutines.delay(1100)
             }
         }
         val today = java.time.LocalDate.now().toString()
-        if (repo.prefs.getBoolean("reminders", true) && repo.prefs.getString("reminderDate", "") != today) {
-            val due = repo.parcels.value.count { it.isDue() }
-            if (due > 0) notifyParcel(applicationContext, 100, "Noch $due Paket${if (due > 1) "e" else ""} abgeben", "Die Versandfrist ist heute, morgen oder bereits abgelaufen.")
+        val assistant = repo.assistant.value
+        if (assistant.reminders && java.time.LocalTime.now().hour >= assistant.reminderHour && repo.prefs.getString("reminderDate", "") != today) {
+            val dueParcels = repo.parcels.value.filter { it.isDue() }
+            val due = dueParcels.size
+            if (due > 0) notifyParcel(applicationContext, 100, "Noch $due Paket${if (due > 1) "e" else ""} abgeben", "${assistant.name.takeIf { it.isNotBlank() }?.let { "$it, " }.orEmpty()}${dueParcels.take(3).joinToString { "${it.code} ${it.title}" }}: bitte die bestätigten Abgabefristen prüfen.", dueParcels.firstOrNull()?.id)
             repo.prefs.edit().putString("reminderDate", today).apply()
         }
         return if (failed && runAttemptCount < 3) Result.retry() else Result.success()

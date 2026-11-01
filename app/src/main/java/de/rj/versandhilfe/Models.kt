@@ -35,8 +35,9 @@ val AppJson = Json { ignoreUnknownKeys = true; prettyPrint = true; encodeDefault
 }
 @Serializable data class Attachment(
     val id: String = UUID.randomUUID().toString(), val name: String, val mime: String,
-    val file: String, val sha256: String, val kind: AttachmentKind
-)
+    val file: String, val sha256: String, val kind: AttachmentKind,
+    val detectedKinds: List<AttachmentKind> = emptyList(), val aiAnalyzed: Boolean = false
+) { fun hasKind(value: AttachmentKind) = kind == value || value in detectedKinds }
 @Serializable data class ParcelEvent(
     val at: Long = System.currentTimeMillis(), val text: String, val source: String = "Manuell"
 )
@@ -49,19 +50,22 @@ val AppJson = Json { ignoreUnknownKeys = true; prettyPrint = true; encodeDefault
     val status: ParcelStatus = ParcelStatus.DRAFT, val dueDate: String = "",
     val attachments: List<Attachment> = emptyList(), val events: List<ParcelEvent> = emptyList(),
     val updatedAt: Long = System.currentTimeMillis(), val createdAt: Long = System.currentTimeMillis(),
-    val trackingSummary: String = "", val trackingCheckedAt: Long = 0, val trackingError: String = ""
+    val trackingSummary: String = "", val trackingCheckedAt: Long = 0, val trackingError: String = "",
+    val orderNumber: String = "", val aiSummary: String = "", val aiEvidence: Map<String, String> = emptyMap(), val aiReviewRequired: Boolean = false
 ) {
     val code get() = "P-${number.toString().padStart(3, '0')}"
     val apiCourier get() = customCourierCode.trim().ifBlank { carrier.apiCode }
-    fun isDue(): Boolean = dueDate.isNotBlank() && status in listOf(ParcelStatus.DRAFT, ParcelStatus.READY) &&
+    fun isDue(): Boolean = !aiReviewRequired && dueDate.isNotBlank() && status in listOf(ParcelStatus.DRAFT, ParcelStatus.READY) &&
         runCatching { !LocalDate.parse(dueDate).isAfter(LocalDate.now().plusDays(1)) }.getOrDefault(false)
 }
 @Serializable data class Archive(
     val format: String = "de.rj.versandhilfe", val version: Int = 1,
-    val savedAt: Long = System.currentTimeMillis(), val parcels: List<Parcel> = emptyList()
+    val savedAt: Long = System.currentTimeMillis(), val parcels: List<Parcel> = emptyList(),
+    val assistant: AssistantState = AssistantState()
 )
 fun validateArchive(archive: Archive) {
     require(archive.format == "de.rj.versandhilfe" && archive.version == 1) { "Dieses Backup-Format wird nicht unterstützt." }
+    require(archive.assistant.dailyLimit in 1..50 && archive.assistant.messages.size <= 80 && archive.assistant.name.length <= 80 && archive.assistant.encryptedKeys.length <= 30000) { "Ungültige Assistenten-Einstellungen." }
     require(archive.parcels.size <= 10000) { "Das Backup enthält zu viele Pakete." }
     require(archive.parcels.map { it.id }.distinct().size == archive.parcels.size) { "Doppelte Paket-IDs im Backup." }
     archive.parcels.forEach { p ->

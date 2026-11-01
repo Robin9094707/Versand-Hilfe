@@ -91,7 +91,7 @@ fun readableTime(value: Long): String = if (value == 0L) "Noch nicht" else DateT
         TextButton(onClick = { if (page > 0) page-- else page = 2 }, modifier = Modifier.padding(bottom = 16.dp)) { Text(if (page > 0) "Zurück" else "Ich habe schon eine Sammlung") }
     }
 }
-@Composable fun HomeScreen(repo: ParcelRepository, parcels: List<Parcel>, onAdd: () -> Unit, onOpen: (String) -> Unit, onSettings: () -> Unit) {
+@Composable fun HomeScreen(repo: ParcelRepository, parcels: List<Parcel>, onAdd: () -> Unit, onOpen: (String) -> Unit, onSettings: () -> Unit, onChat: () -> Unit = {}) {
     var query by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf("Aktiv") }
     var provider by rememberSaveable { mutableStateOf("Alle Anbieter") }
@@ -121,6 +121,7 @@ fun readableTime(value: Long): String = if (value == 0L) "Noch nicht" else DateT
                     }
                 }
             }
+            item { WelcomeCard(repo, parcels, onOpen, onChat) }
             if (parcels.any { it.isDue() }) item { InfoCard(Icons.Outlined.Schedule, "Die nächste Abgabe wartet", "${parcels.count { it.isDue() }} Pakete solltest du heute oder morgen abgeben.", MaterialTheme.colorScheme.tertiaryContainer) }
             if (repo.prefs.getBoolean("dirty", false) || repo.folderUri == null) item { Surface(onClick = onSettings, color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(20.dp)) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Outlined.CloudOff, null); Spacer(Modifier.width(12.dp)); Text(backup, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall); Icon(Icons.Outlined.ChevronRight, null) } } }
             item { OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Paket, Name oder Nummer suchen") }, leadingIcon = { Icon(Icons.Outlined.Search, null) }, trailingIcon = { if (query.isNotBlank()) IconButton(onClick = { query = "" }) { Icon(Icons.Outlined.Close, "Suche leeren") } }, singleLine = true, shape = RoundedCornerShape(24.dp)) }
@@ -147,7 +148,7 @@ fun readableTime(value: Long): String = if (value == 0L) "Noch nicht" else DateT
     Card(onClick = onClick, shape = RoundedCornerShape(26.dp), colors = CardDefaults.cardColors(containerColor = if (selected == true) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                val photo = parcel.attachments.firstOrNull { it.kind == AttachmentKind.PHOTO && it.mime.startsWith("image/") }
+                val photo = parcel.attachments.firstOrNull { it.hasKind(AttachmentKind.PHOTO) && it.mime.startsWith("image/") }
                 if (photo != null) AsyncImage(File(repo.assets, photo.file), "Foto von ${parcel.title}", Modifier.size(74.dp).clip(RoundedCornerShape(18.dp)), contentScale = ContentScale.Crop)
                 else Box(Modifier.size(74.dp).clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Inventory2, null, Modifier.size(34.dp), tint = MaterialTheme.colorScheme.primary) }
                 Column(Modifier.weight(1f)) {
@@ -160,7 +161,7 @@ fun readableTime(value: Long): String = if (value == 0L) "Noch nicht" else DateT
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 StatusPill(parcel.status)
                 SmallPill(parcel.carrier.label, Icons.Outlined.LocalShipping)
-                if (parcel.attachments.any { it.kind == AttachmentKind.LABEL }) SmallPill("Label", Icons.Outlined.QrCode2)
+                if (parcel.attachments.any { it.hasKind(AttachmentKind.LABEL) }) SmallPill("Label", Icons.Outlined.QrCode2)
                 if (parcel.isDue()) SmallPill("Frist: ${parcel.dueDate}", Icons.Outlined.Schedule, true)
             }
             if (parcel.location.isNotBlank()) Text("Liegt bei: ${parcel.location}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -208,10 +209,13 @@ fun readableTime(value: Long): String = if (value == 0L) "Noch nicht" else DateT
     var apiKey by remember { mutableStateOf("") }
     var hasKey by remember { mutableStateOf(ApiKeyStore(repo.context).hasKey()) }
     var consent by rememberSaveable { mutableStateOf(false) }
-    var reminders by rememberSaveable { mutableStateOf(repo.prefs.getBoolean("reminders", true)) }
+    val assistant by repo.assistant.collectAsStateWithLifecycle()
+    val settingsScope = rememberCoroutineScope()
+    val reminders = assistant.reminders
     val context = LocalContext.current
     LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        item { ScreenHeading("Gut aufgehoben", "Deine Daten. Dein Sicherungsordner.") }
+        item { ScreenHeading("Gut aufgehoben", "Dein Profil, KI-Modus und Sicherung.") }
+        item { AssistantSettings(repo, onMessage) }
         item { InfoCard(Icons.Outlined.FolderOpen, repo.folderName, "$backup\nLetzte Sicherung: ${readableTime(repo.lastBackup)}") }
         item { Text("Sicherung & Wiederherstellung", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
         item { ActionRow(Icons.Outlined.FolderOpen, "Ordner auswählen / wieder verbinden", "Nach Neuinstallation denselben Ordner wählen", onFolder) }
@@ -224,13 +228,15 @@ fun readableTime(value: Long): String = if (value == 0L) "Noch nicht" else DateT
         item { InfoCard(Icons.Outlined.TravelExplore, "Automatisch mit TrackingMore", "Für automatische Updates wird ein eigenes TrackingMore-Konto mit API-Schlüssel benötigt. Je nach Tarif kostenpflichtig. Ohne Schlüssel bleiben die direkten Anbieter-Links verfügbar.", MaterialTheme.colorScheme.primaryContainer) }
         item { Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(consent, { consent = it }); Text("Ich möchte Sendungsnummer und Anbieter an TrackingMore übertragen. Fotos, Namen, Adressen und Notizen werden dafür nicht gesendet.", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium) } }
         item { OutlinedTextField(apiKey, { apiKey = it }, Modifier.fillMaxWidth(), label = { Text(if (hasKey) "Neuer API-Schlüssel (einer ist gespeichert)" else "TrackingMore API-Schlüssel") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(autoCorrectEnabled = false), shape = RoundedCornerShape(20.dp)) }
-        item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(onClick = { runCatching { ApiKeyStore(context).save(apiKey); hasKey = true; apiKey = "" }.onSuccess { onMessage("API-Schlüssel sicher auf diesem Gerät gespeichert") }.onFailure { onMessage("Schlüssel konnte nicht gespeichert werden") } }, enabled = consent && apiKey.isNotBlank()) { Text("Schlüssel speichern") }; if (hasKey) TextButton(onClick = { ApiKeyStore(context).save(""); hasKey = false; onMessage("API-Schlüssel entfernt") }) { Text("Entfernen") } } }
-        item { Text("Automatik pro Paket einschalten. Android prüft ungefähr alle 6 Stunden, abhängig von Akku und Internet. Kein Echtzeitversprechen. Der Schlüssel wird mit Android Keystore geschützt und gehört nicht zum Backup.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(onClick = { settingsScope.launch { runCatching { repo.saveTrackingKey(apiKey); hasKey = true; apiKey = "" }.onSuccess { onMessage("TrackingMore-Schlüssel geschützt und im Schlüsselbackup gespeichert") }.onFailure { onMessage(it.message ?: "Zuerst ein Backup-Passwort unter KI & Profil einrichten") } } }, enabled = consent && apiKey.isNotBlank()) { Text("Schlüssel speichern") }; if (hasKey) TextButton(onClick = { settingsScope.launch { runCatching { repo.saveTrackingKey(""); hasKey = false }.onFailure { onMessage(it.message ?: "Schlüssel konnte nicht entfernt werden") } } }) { Text("Entfernen") } } }
+        item { Text("Automatik pro Paket einschalten. Android prüft ungefähr alle 6 Stunden, abhängig von Akku und Internet. Kein Echtzeitversprechen. Der Schlüssel wird lokal mit Android Keystore und im Backup zusätzlich mit deinem Backup-Passwort geschützt.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item { ActionRow(Icons.Outlined.OpenInNew, "TrackingMore einrichten", "Konto, API-Zugang und Tarife", { openWeb(context, "https://www.trackingmore.com/tracking-api.html") }) }
         item { HorizontalDivider() }
-        item { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("An Abgabefristen erinnern", style = MaterialTheme.typography.titleMedium); Text("Heute, morgen oder bereits überfällig", style = MaterialTheme.typography.bodySmall) }; Switch(reminders, { reminders = it; repo.prefs.edit().putBoolean("reminders", it).apply() }) } }
+        item { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("An Abgabefristen erinnern", style = MaterialTheme.typography.titleMedium); Text("Heute, morgen oder bereits überfällig", style = MaterialTheme.typography.bodySmall) }; Switch(reminders, { value -> settingsScope.launch { repo.modifyAssistant { it.copy(reminders = value) } } }) } }
+        item { ChoiceField("Tägliche Erinnerung frühestens ab", "${assistant.reminderHour}:00 Uhr", listOf("9:00 Uhr", "12:00 Uhr", "18:00 Uhr")) { value -> settingsScope.launch { repo.modifyAssistant { it.copy(reminderHour = value.substringBefore(":").toInt()) } } } }
+        item { Text("Android führt Erinnerungen im Hintergrund auch nach dem normalen Schließen aus. Akkuoptimierung kann sie verschieben; nach „Stopp erzwingen“ muss die App einmal wieder geöffnet werden. Kein Dauerbetrieb und keine ständigen KI-Aufrufe nötig.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item { ActionRow(Icons.Outlined.NotificationsActive, "Benachrichtigungen erlauben", "Paket-Updates und Abgabefristen", onNotification) }
-        item { Text("Versandhilfe 1.0.0\nMit Liebe zur Ordnung. Für die vielen kleinen Reisen deiner Pakete.", Modifier.padding(vertical = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { Text("Versandhilfe 2.0.0\nMit Liebe zur Ordnung. Für die vielen kleinen Reisen deiner Pakete.", Modifier.padding(vertical = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
 @Composable fun ActionRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit) {

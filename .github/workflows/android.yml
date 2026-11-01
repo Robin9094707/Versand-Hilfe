@@ -43,11 +43,11 @@ jobs:
       - name: Tests, lint and installable APK
         run: ./gradlew testDebugUnitTest lintDebug assembleDebug --stacktrace
       - name: Name APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk Versandhilfe-1.0.0.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk Versandhilfe-2.0.0.apk
       - uses: actions/upload-artifact@v4
         with:
           name: Versandhilfe-Android-APK
-          path: Versandhilfe-1.0.0.apk
+          path: Versandhilfe-2.0.0.apk
           if-no-files-found: error
           retention-days: 30
       - name: Reports

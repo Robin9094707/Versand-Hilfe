@@ -77,6 +77,33 @@ class StorageTest {
         assertTrue(scan.codes.contains(url))
         assertTrue(scan.candidates.any { it.number == "00340434123456789012" && it.carrier == Carrier.DHL })
     }
+    @Test fun aiProfileChatAndEncryptedKeysRestoreAfterLocalSecretsAreRemoved() = runBlocking {
+        val repo = ParcelRepository(context)
+        repo.load()
+        repo.configureAssistant("Jessica", "sk-fake-test-key-never-sent", "backup-passwort-123", true)
+        repo.addChat("Paketübersicht", ParcelAnswer("Noch keine dringenden Pakete."))
+        val zip = File(context.cacheDir, "ai-backup.zip")
+        repo.exportZip(Uri.fromFile(zip))
+        java.util.zip.ZipFile(zip).use { z ->
+            val json = z.getInputStream(z.getEntry("versandhilfe.json")).bufferedReader().readText()
+            assertFalse(json.contains("sk-fake-test-key-never-sent"))
+            assertTrue(json.contains("Jessica"))
+        }
+        SecretVault(context).openAi.save("")
+        ApiKeyStore(context, "backup-password").save("")
+        File(context.filesDir, "parcels.json").delete()
+        val restored = ParcelRepository(context)
+        restored.load()
+        restored.importZip(Uri.fromFile(zip))
+        assertEquals("Jessica", restored.assistant.value.name)
+        assertTrue(restored.assistant.value.messages.isNotEmpty())
+        assertFalse(SecretVault(context).ready(restored.assistant.value))
+        restored.unlockKeys("backup-passwort-123")
+        assertEquals("sk-fake-test-key-never-sent", SecretVault(context).openAi.read())
+        SecretVault(context).openAi.save("")
+        ApiKeyStore(context, "backup-password").save("")
+        Unit
+    }
     @Test fun unsafeZipLeavesCollectionUntouched() = runBlocking {
         val repo = ParcelRepository(context)
         repo.load()

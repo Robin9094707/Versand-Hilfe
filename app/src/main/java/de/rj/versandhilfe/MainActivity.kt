@@ -70,6 +70,7 @@ private val LightPalette = lightColorScheme(
     val parcels by repo.parcels.collectAsStateWithLifecycle()
     val loaded by repo.loaded.collectAsStateWithLifecycle()
     val loadError by repo.loadError.collectAsStateWithLifecycle()
+    val assistant by repo.assistant.collectAsStateWithLifecycle()
     var onboarded by rememberSaveable { mutableStateOf(repo.prefs.getBoolean("onboarded", false)) }
     var route by rememberSaveable { mutableStateOf("home") }
     var detailId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -107,11 +108,11 @@ private val LightPalette = lightColorScheme(
             job { pendingShared = received.map { repo.attach(it, AttachmentKind.LABEL) }; shareTarget = true; consumeShare() }
         }
     }
-    BackHandler(route in listOf("detail", "settings")) { route = "home" }
+    BackHandler(route in listOf("detail", "settings", "chat")) { route = "home" }
     Scaffold(snackbarHost = { SnackbarHost(snack) }, containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            if (onboarded && loaded && route in listOf("home", "dropoff", "settings")) NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-                listOf(Triple("home", "Pakete", Icons.Outlined.Inventory2), Triple("dropoff", "Abgeben", Icons.Outlined.LocalShipping), Triple("settings", "Sicherung", Icons.Outlined.CloudDone)).forEach { (key, title, icon) ->
+            if (onboarded && loaded && route in listOf("home", "dropoff", "settings", "chat")) NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+                listOf(Triple("home", "Pakete", Icons.Outlined.Inventory2), Triple("dropoff", "Abgeben", Icons.Outlined.LocalShipping), Triple("chat", "Pakethelfer", Icons.Outlined.AutoAwesome), Triple("settings", "Sicherung", Icons.Outlined.CloudDone)).forEach { (key, title, icon) ->
                     NavigationBarItem(selected = route == key, onClick = { route = key }, icon = { Icon(icon, null) }, label = { Text(title) })
                 }
             }
@@ -130,7 +131,8 @@ private val LightPalette = lightColorScheme(
                 (fadeIn(tween(220)) + slideInHorizontally(tween(280)) { it / 12 }) togetherWith (fadeOut(tween(160)) + slideOutHorizontally(tween(220)) { -it / 16 })
             }, label = "Seitenwechsel") { page ->
                 when (page) {
-                    "home" -> HomeScreen(repo, parcels, onAdd = { editId = null; draftId = java.util.UUID.randomUUID().toString(); route = "edit" }, onOpen = { detailId = it; route = "detail" }, onSettings = { route = "settings" })
+                    "home" -> HomeScreen(repo, parcels, onAdd = { editId = null; draftId = java.util.UUID.randomUUID().toString(); route = "edit" }, onOpen = { detailId = it; route = "detail" }, onSettings = { route = "settings" }, onChat = { route = "chat" })
+                    "chat" -> ParcelChatScreen(repo, onOpen = { detailId = it; route = "detail" }, onSettings = { route = "settings" })
                     "dropoff" -> DropoffScreen(repo, parcels, onOpen = { detailId = it; route = "detail" }, onStatus = { ids -> job { repo.setStatus(ids, ParcelStatus.SHIPPED); message("${ids.size} Pakete als abgegeben markiert") } })
                     "settings" -> SettingsScreen(repo, onFolder = { pickFolder.launch(null) }, onBackup = { job { if (repo.backup()) message("Sicherung vollständig und geprüft") else message(repo.backupMessage.value) } },
                         onExport = { export.launch("Versandhilfe-${java.time.LocalDate.now()}.zip") }, onImport = { import.launch(arrayOf("application/zip", "application/octet-stream")) }, onMessage = ::message,
@@ -143,7 +145,8 @@ private val LightPalette = lightColorScheme(
                         else EmptyState("Paket nicht gefunden", "Es wurde möglicherweise bereits entfernt.", "Zur Übersicht", { route = "home" })
                     }
                     "edit" -> {
-                        val original = parcels.find { it.id == editId } ?: Parcel(id = draftId, number = (parcels.maxOfOrNull { it.number } ?: 0) + 1, attachments = pendingShared)
+                        val existing = parcels.find { it.id == editId }
+                        val original = existing?.copy(attachments = existing.attachments + pendingShared.filterNot { a -> existing.attachments.any { it.id == a.id } }) ?: Parcel(id = draftId, number = (parcels.maxOfOrNull { it.number } ?: 0) + 1, attachments = pendingShared)
                         EditorScreen(repo, original, onBack = { pendingShared = emptyList(); route = if (editId == null) "home" else "detail" }, onSave = { parcel ->
                             job {
                                 val saved = repo.save(parcel); pendingShared = emptyList(); detailId = saved.id; route = "detail"
@@ -165,6 +168,6 @@ private val LightPalette = lightColorScheme(
     if (shareTarget) AlertDialog(onDismissRequest = { shareTarget = false; pendingShared = emptyList() }, title = { Text("Versandlabel zuordnen") },
         text = { androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item { Text("${pendingShared.size} Anhänge empfangen. Welches Paket gehört dazu?") }
-            items(parcels.size) { i -> val p = parcels[i]; TextButton(onClick = { shareTarget = false; job { repo.update(p.id) { it.copy(attachments = it.attachments + pendingShared) }; pendingShared = emptyList(); detailId = p.id; route = "detail" } }) { Text("${p.code} · ${p.title}") } }
+            items(parcels.size) { i -> val p = parcels[i]; TextButton(onClick = { shareTarget = false; editId = p.id; detailId = p.id; route = "edit" }) { Text("${p.code} · ${p.title}") } }
         } }, confirmButton = { Button(onClick = { shareTarget = false; editId = null; draftId = java.util.UUID.randomUUID().toString(); route = "edit" }) { Text("Neues Paket") } }, dismissButton = { TextButton(onClick = { shareTarget = false; pendingShared = emptyList() }) { Text("Abbrechen") } })
 }
