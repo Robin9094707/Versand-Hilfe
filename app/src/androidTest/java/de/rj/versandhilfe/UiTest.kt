@@ -34,8 +34,30 @@ class UiTest {
         compose.setContent { VersandTheme { HomeScreen(repo, parcels, {}, {}, {}) } }
         screenshot("02-paketuebersicht")
         compose.onNode(hasSetTextAction()).performTextInput("Lieblingsjacke")
-        compose.onNodeWithText("Lieblingsjacke").performScrollTo().assertIsDisplayed()
+        compose.onNode(hasText("Lieblingsjacke") and !hasSetTextAction()).performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Blaue Jeans").assertDoesNotExist()
+    }
+    @Test fun realAppCanOpenAndEditSavedParcel() {
+        val repo = ParcelRepository(context)
+        kotlinx.coroutines.runBlocking {
+            repo.load()
+            repo.parcels.value.forEach { repo.delete(it.id) }
+            val rootUri = android.provider.DocumentsContract.buildTreeDocumentUri("${context.packageName}.fixture", "root")
+            val folder = androidx.documentfile.provider.DocumentFile.fromTreeUri(context, rootUri)!!.createDirectory("ui-${java.util.UUID.randomUUID()}")!!
+            val tree = android.provider.DocumentsContract.buildTreeDocumentUri("${context.packageName}.fixture", android.provider.DocumentsContract.getDocumentId(folder.uri))
+            repo.useFolder(repo.inspect(tree), false)
+            repo.save(Parcel(number = 1, title = "Blaue Jeans", recipient = "Anna", location = "Flur · Regal links", carrier = Carrier.DHL, status = ParcelStatus.READY))
+            repo.save(Parcel(number = 2, title = "Lieblingsjacke", recipient = "Sophie", carrier = Carrier.HERMES, status = ParcelStatus.SHIPPED))
+        }
+        compose.setContent { VersandTheme { VersandApp(repo, emptyList(), null, {}, {}) } }
+        compose.onNodeWithText("Dein Versand").assertIsDisplayed()
+        screenshot("04-app-uebersicht")
+        compose.onNodeWithText("Blaue Jeans").performScrollTo().performClick()
+        compose.onNodeWithText("Versandlabel fehlt noch").assertIsDisplayed()
+        screenshot("05-paketdetails")
+        compose.onNodeWithContentDescription("Bearbeiten").performClick()
+        compose.onNodeWithText("Paket bearbeiten").assertIsDisplayed()
+        repo.prefs.edit().remove("folder").remove("folderName").commit()
     }
     @Test fun editorCannotSaveEmptyTitle() {
         compose.setContent { VersandTheme { EditorScreen(ParcelRepository(context), Parcel(), {}, {}, {}) } }

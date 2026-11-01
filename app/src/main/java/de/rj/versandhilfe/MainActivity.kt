@@ -14,6 +14,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -90,6 +91,7 @@ private val LightPalette = lightColorScheme(
     val notifyPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (!granted) message("Benachrichtigungen sind aus. Du kannst sie später in Android aktivieren.") }
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) job {
+            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             val inspection = repo.inspect(uri)
             if (inspection.archive != null) folder = inspection else { repo.useFolder(inspection, false); onboarded = true }
         }
@@ -151,7 +153,7 @@ private val LightPalette = lightColorScheme(
                     }
                 }
             }
-            if (busy) Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.scrim.copy(alpha = .25f)), contentAlignment = Alignment.Center) {
+            if (busy) Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.scrim.copy(alpha = .25f)).clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) {}, contentAlignment = Alignment.Center) {
                 Surface(shape = RoundedCornerShape(28.dp), tonalElevation = 8.dp) { Row(Modifier.padding(28.dp), horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(28.dp)); Text("Einen Moment …") } }
             }
         }

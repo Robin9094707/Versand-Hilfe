@@ -96,6 +96,7 @@ fun readableTime(value: Long): String = if (value == 0L) "Noch nicht" else DateT
     var filter by rememberSaveable { mutableStateOf("Aktiv") }
     var provider by rememberSaveable { mutableStateOf("Alle Anbieter") }
     var sort by rememberSaveable { mutableStateOf("Neueste zuerst") }
+    var showFilters by remember { mutableStateOf(false) }
     val backup by repo.backupMessage.collectAsStateWithLifecycle()
     val active = parcels.count { it.status != ParcelStatus.DELIVERED }
     val ready = parcels.count { it.status == ParcelStatus.READY }
@@ -124,12 +125,22 @@ fun readableTime(value: Long): String = if (value == 0L) "Noch nicht" else DateT
             if (repo.prefs.getBoolean("dirty", false) || repo.folderUri == null) item { Surface(onClick = onSettings, color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(20.dp)) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Outlined.CloudOff, null); Spacer(Modifier.width(12.dp)); Text(backup, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall); Icon(Icons.Outlined.ChevronRight, null) } } }
             item { OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Paket, Name oder Nummer suchen") }, leadingIcon = { Icon(Icons.Outlined.Search, null) }, trailingIcon = { if (query.isNotBlank()) IconButton(onClick = { query = "" }) { Icon(Icons.Outlined.Close, "Suche leeren") } }, singleLine = true, shape = RoundedCornerShape(24.dp)) }
             item { ScrollChips(listOf("Aktiv", "Alle") + ParcelStatus.entries.map { it.label }, filter) { filter = it } }
-            item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Box(Modifier.weight(1f)) { ChoiceField("Anbieter", provider, listOf("Alle Anbieter") + Carrier.entries.map { it.label }) { provider = it } }; Box(Modifier.weight(1f)) { ChoiceField("Sortierung", sort, listOf("Neueste zuerst", "Frist zuerst")) { sort = it } } } }
-            item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Deine Pakete", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text("${filtered.size}", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+            item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Deine Pakete · ${filtered.size}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                IconButton(onClick = { showFilters = true }) { Icon(Icons.Outlined.Tune, "Anbieter und Sortierung") }
+            } }
             if (filtered.isEmpty()) item { EmptyState(if (parcels.isEmpty()) "Das erste Paket wartet" else "Keine passenden Pakete", if (parcels.isEmpty()) "Foto machen, Label hinzufügen, Paketnummer aufschreiben. So einfach geht’s." else "Versuche einen anderen Suchbegriff oder Filter.", if (parcels.isEmpty()) "Erstes Paket anlegen" else null, onAdd) }
             items(filtered, key = { it.id }) { parcel -> Box(Modifier.animateItem()) { ParcelCard(repo, parcel, { onOpen(parcel.id) }) } }
         }
         ExtendedFloatingActionButton(onClick = onAdd, icon = { Icon(Icons.Outlined.Add, null) }, text = { Text("Neues Paket") }, modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp), containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary)
+    }
+    if (showFilters) ModalBottomSheet(onDismissRequest = { showFilters = false }) {
+        Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            Text("Deine Ansicht", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            ChoiceField("Anbieter", provider, listOf("Alle Anbieter") + Carrier.entries.map { it.label }) { provider = it }
+            ChoiceField("Sortierung", sort, listOf("Neueste zuerst", "Frist zuerst")) { sort = it }
+            Button(onClick = { showFilters = false }, modifier = Modifier.fillMaxWidth()) { Text("Anwenden") }
+        }
     }
 }
 @Composable fun ParcelCard(repo: ParcelRepository, parcel: Parcel, onClick: () -> Unit, selected: Boolean? = null, onSelect: (() -> Unit)? = null) {

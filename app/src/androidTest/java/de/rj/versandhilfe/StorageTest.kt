@@ -33,6 +33,48 @@ class StorageTest {
         assertFalse(fresh.backup()) // No SAF folder selected: local save succeeds and failure is visible.
         assertTrue(fresh.backupMessage.value.contains("Nur auf diesem Gerät"))
     }
+    @Test fun safFolderRestoresAllFilesAndSkipsInterruptedSnapshot() = runBlocking {
+        val repo = ParcelRepository(context)
+        repo.load()
+        val tree = android.provider.DocumentsContract.buildTreeDocumentUri("${context.packageName}.fixture", "root")
+        val root = androidx.documentfile.provider.DocumentFile.fromTreeUri(context, tree)!!
+        val sub = root.createDirectory("case-${UUID.randomUUID()}")!!
+        val uri = android.provider.DocumentsContract.buildTreeDocumentUri("${context.packageName}.fixture", android.provider.DocumentsContract.getDocumentId(sub.uri))
+        repo.useFolder(repo.inspect(uri), false)
+        val fixture = File(context.cacheDir, "folder-image.png")
+        val bitmap = android.graphics.Bitmap.createBitmap(32, 32, android.graphics.Bitmap.Config.ARGB_8888)
+        fixture.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        val att = repo.attach(Uri.fromFile(fixture), AttachmentKind.PHOTO)
+        val item = repo.save(Parcel(title = "Dauerhaft", attachments = listOf(att)))
+        assertTrue(repo.backup())
+        val snapshots = sub.findFile("Versandhilfe")!!.findFile("snapshots")!!
+        val corrupt = snapshots.createFile("application/json", "9999999999999-interrupted.json")!!
+        context.contentResolver.openOutputStream(corrupt.uri)!!.use { it.write("{truncated".toByteArray()) }
+        val inspection = repo.inspect(uri)
+        assertTrue(inspection.archive!!.parcels.any { it.id == item.id })
+        repo.delete(item.id)
+        File(repo.assets, att.file).delete()
+        repo.useFolder(inspection, true)
+        val fresh = ParcelRepository(context)
+        fresh.load()
+        assertTrue(fresh.parcels.value.any { it.id == item.id })
+        assertEquals(att.sha256, digest(File(fresh.assets, att.file).readBytes()))
+        repo.prefs.edit().remove("folder").remove("folderName").commit()
+    }
+    @Test fun importedQrImageIsDecodedOnDevice() = runBlocking {
+        val repo = ParcelRepository(context)
+        repo.load()
+        val url = "https://www.dhl.de/de/privatkunden?piececode=00340434123456789012"
+        val matrix = com.google.zxing.MultiFormatWriter().encode(url, com.google.zxing.BarcodeFormat.QR_CODE, 600, 600)
+        val bitmap = android.graphics.Bitmap.createBitmap(600, 600, android.graphics.Bitmap.Config.ARGB_8888)
+        for (y in 0 until 600) for (x in 0 until 600) bitmap.setPixel(x, y, if (matrix[x, y]) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+        val file = File(context.cacheDir, "qr.png")
+        file.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        val attachment = repo.attach(Uri.fromFile(file), AttachmentKind.LABEL)
+        val scan = recognize(repo, attachment)
+        assertTrue(scan.codes.contains(url))
+        assertTrue(scan.candidates.any { it.number == "00340434123456789012" && it.carrier == Carrier.DHL })
+    }
     @Test fun unsafeZipLeavesCollectionUntouched() = runBlocking {
         val repo = ParcelRepository(context)
         repo.load()

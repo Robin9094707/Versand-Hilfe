@@ -36,7 +36,6 @@ class ShippingApp : Application() {
         super.onCreate()
         getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel("shipping", "Paket-Updates & Fristen", NotificationManager.IMPORTANCE_DEFAULT))
         val request = PeriodicWorkRequestBuilder<ShippingWorker>(6, TimeUnit.HOURS)
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.MINUTES).build()
         WorkManager.getInstance(this).enqueueUniquePeriodicWork("shipping-sync", ExistingPeriodicWorkPolicy.KEEP, request)
     }
@@ -69,6 +68,37 @@ class ApiKeyStore(private val context: Context) {
 }
 data class TrackingUpdate(val status: String, val summary: String)
 class TrackingClient(private val key: String) {
+    companion object {
+        @Volatile private var courierCache: Pair<Long, Map<String, String>>? = null
+    }
+    private fun courierCode(parcel: Parcel): String {
+        if (parcel.customCourierCode.isNotBlank()) return parcel.customCourierCode
+        val names = when (parcel.carrier) {
+            Carrier.DHL -> listOf("dhl germany")
+            Carrier.HERMES -> listOf("hermes germany")
+            Carrier.DPD -> listOf("dpd germany", "dpd")
+            Carrier.GLS -> listOf("gls germany", "gls")
+            Carrier.UPS -> listOf("ups")
+            Carrier.FEDEX -> listOf("fedex")
+            Carrier.POST -> listOf("deutsche post")
+            else -> emptyList()
+        }
+        val cached = courierCache
+        val couriers = if (cached != null && System.currentTimeMillis() - cached.first < 3_600_000) cached.second else {
+            val json = request("couriers/all")
+            val data = json["data"] as? JsonArray ?: error("Anbieterliste nicht verfügbar. Bitte Anbieter-Code manuell angeben.")
+            val values = data.mapNotNull { element ->
+                val entry = element.jsonObject
+                val name = entry["courier_name"]?.jsonPrimitive?.contentOrNull?.lowercase()
+                val code = entry["courier_code"]?.jsonPrimitive?.contentOrNull
+                if (name != null && code != null) name to code else null
+            }.toMap()
+            courierCache = System.currentTimeMillis() to values
+            values
+        }
+        return names.firstNotNullOfOrNull { couriers[it] }
+            ?: error("Kein passender Anbieter im API-Konto gefunden. Bitte den TrackingMore-Anbieter-Code beim Paket eintragen.")
+    }
     private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(25, TimeUnit.SECONDS)
         .followRedirects(false).followSslRedirects(false).build()
     private fun request(path: String, body: String? = null): JsonObject {
@@ -89,10 +119,11 @@ class TrackingClient(private val key: String) {
     suspend fun track(parcel: Parcel): TrackingUpdate = withContext(Dispatchers.IO) {
         require(key.isNotBlank()) { "Bitte zuerst einen TrackingMore-API-Schlüssel hinterlegen." }
         require(parcel.apiCourier.isNotBlank() && parcel.trackingNumber.isNotBlank()) { "Sendungsnummer und Anbieter fehlen." }
-        val body = buildJsonObject { put("tracking_number", parcel.trackingNumber); put("courier_code", parcel.apiCourier) }.toString()
+        val resolvedCourier = courierCode(parcel)
+        val body = buildJsonObject { put("tracking_number", parcel.trackingNumber); put("courier_code", resolvedCourier) }.toString()
         request("trackings/create", body)
         val n = java.net.URLEncoder.encode(parcel.trackingNumber, "UTF-8")
-        val c = java.net.URLEncoder.encode(parcel.apiCourier, "UTF-8")
+        val c = java.net.URLEncoder.encode(resolvedCourier, "UTF-8")
         val json = request("trackings/get?tracking_numbers=$n&courier_code=$c")
         val data = json["data"]
         val item = when (data) {

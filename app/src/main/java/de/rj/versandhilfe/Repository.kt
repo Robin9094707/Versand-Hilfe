@@ -108,6 +108,13 @@ class ParcelRepository(val context: Context) {
             backupLocked()
         }
     }
+    private fun writeAsset(name: String, bytes: ByteArray) {
+        val target = File(assets, name)
+        if (target.exists() && digest(target.readBytes()) == digest(bytes)) return
+        val atomic = AtomicFile(target)
+        val out = atomic.startWrite()
+        try { out.write(bytes); atomic.finishWrite(out) } catch (e: Exception) { atomic.failWrite(out); throw e }
+    }
     suspend fun attach(uri: Uri, kind: AttachmentKind): Attachment = withContext(Dispatchers.IO) {
         val name = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
             if (c.moveToFirst()) c.getString(0) else null
@@ -122,7 +129,7 @@ class ParcelRepository(val context: Context) {
         }
         val hash = digest(bytes)
         val file = "$hash.$ext"
-        if (!File(assets, file).exists()) File(assets, file).writeBytes(bytes)
+        writeAsset(file, bytes)
         Attachment(name = name, mime = if (ext == "pdf") "application/pdf" else "image/${if (ext == "jpg") "jpeg" else ext}", file = file, sha256 = hash, kind = kind)
     }
     private fun root(uri: Uri) = DocumentFile.fromTreeUri(context, uri)?.takeIf { it.canRead() && it.canWrite() }
@@ -130,7 +137,6 @@ class ParcelRepository(val context: Context) {
     private fun documentDir(root: DocumentFile, name: String) = root.findFile(name)?.also { require(it.isDirectory) { "$name ist kein Ordner." } }
         ?: root.createDirectory(name) ?: error("Ordner konnte nicht erstellt werden.")
     suspend fun inspect(uri: Uri): FolderInspection = withContext(Dispatchers.IO) {
-        context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
         val folder = root(uri)
         val snapshots = folder.findFile("Versandhilfe")?.findFile("snapshots")?.listFiles()?.filter { it.name?.endsWith(".json") == true }?.sortedByDescending { it.name }.orEmpty()
         var archive: Archive? = null
@@ -159,7 +165,7 @@ class ParcelRepository(val context: Context) {
                 inspection.archive.parcels.flatMap { it.attachments }.distinctBy { it.file }.forEach { a ->
                     val bytes = context.contentResolver.openInputStream(source.findFile(a.file)!!.uri)!!.use { it.readLimited(MAX_FILE) }
                     require(digest(bytes) == a.sha256) { "Ein Anhang ist beschädigt." }
-                    File(assets, a.file).writeBytes(bytes)
+                    writeAsset(a.file, bytes)
                 }
                 writeLocal(mergeParcels(_parcels.value, inspection.archive.parcels))
             }
@@ -208,6 +214,8 @@ class ParcelRepository(val context: Context) {
     suspend fun exportZip(uri: Uri) = withContext(Dispatchers.IO) {
         mutex.withLock {
             require(loadError.value == null) { "Lokale Daten zuerst wiederherstellen." }
+            val allAssets = _parcels.value.flatMap { it.attachments }.distinctBy { it.file }
+            require(allAssets.size < 2000 && allAssets.sumOf { File(assets, it.file).length() } <= MAX_ARCHIVE - 8L * 1024 * 1024) { "Für ZIP-Backups maximal 2.000 Dateien und 500 MB. Bitte die vollständige Ordnersicherung verwenden." }
             val stream = context.contentResolver.openOutputStream(uri, "wt") ?: error("Export nicht möglich.")
             ZipOutputStream(stream).use { zip ->
                 zip.putNextEntry(ZipEntry("versandhilfe.json")); zip.write(AppJson.encodeToString(Archive(parcels = _parcels.value)).toByteArray()); zip.closeEntry()
@@ -247,7 +255,7 @@ class ParcelRepository(val context: Context) {
                 require(file.exists() && digest(file.readBytes()) == a.sha256) { "Ein Anhang fehlt oder ist beschädigt. Es wurde nichts importiert." }
             }
             mutex.withLock {
-                archive.parcels.flatMap { it.attachments }.distinctBy { it.file }.forEach { a -> File(stage, "assets/${a.file}").copyTo(File(assets, a.file), overwrite = true) }
+                archive.parcels.flatMap { it.attachments }.distinctBy { it.file }.forEach { a -> writeAsset(a.file, File(stage, "assets/${a.file}").readBytes()) }
                 writeLocal(mergeParcels(_parcels.value, archive.parcels))
                 backupLocked()
             }

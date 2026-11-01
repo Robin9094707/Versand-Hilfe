@@ -47,8 +47,8 @@ Die gebündelten ML-Kit-Modelle lesen QR-/Barcodes und lateinischen Text auf dem
 - DHL, Hermes, DPD, UPS, GLS, FedEx und Deutsche Post: direkte Links zur offiziellen Sendungsverfolgung mit manuell oder bestätigt erkannter Nummer. Die Anbieter-Webseite kann zusätzlich die PLZ abfragen.
 - **Automatisch:** optionale TrackingMore-V4-Integration. Eigenes Konto/API-Schlüssel und je nach Anbieter/Tarif kostenpflichtiges API-Kontingent erforderlich. Unter Sicherung zustimmen und Schlüssel speichern; danach pro Paket aktivieren.
 - Die App sendet nur Sendungsnummer und Anbieter-Code an TrackingMore, keine Fotos, Adressen oder Notizen. Der Schlüssel wird mit Android Keystore verschlüsselt und nicht exportiert. Nach Neuinstallation erneut einrichten.
-- Für weitere Anbieter einen TrackingMore-Anbieter-Code manuell eintragen. Kein Anspruch auf Unterstützung sämtlicher Versandprodukte; Anbieter-Codes können angepasst werden.
-- WorkManager prüft ungefähr alle sechs Stunden bei Internetzugang. Android kann Arbeit verschieben. Änderungen erzeugen bei erlaubten Benachrichtigungen eine Meldung; Fristerinnerungen werden höchstens einmal täglich ausgegeben. „Tracking jetzt aktualisieren“ ist ebenfalls verfügbar.
+- Die voreingestellten deutschen Anbieter werden gegen die aktuelle API-Anbieterliste aufgelöst. Für weitere Anbieter einen TrackingMore-Anbieter-Code manuell eintragen. Kein Anspruch auf Unterstützung sämtlicher Versandprodukte; Anbieter-Codes können angepasst werden.
+- WorkManager prüft ungefähr alle sechs Stunden; Online-Tracking benötigt Internet, lokale Sicherung und Erinnerungen können auch offline laufen. Android kann Arbeit verschieben. Änderungen erzeugen bei erlaubten Benachrichtigungen eine Meldung; Fristerinnerungen werden höchstens einmal täglich ausgegeben. „Tracking jetzt aktualisieren“ ist ebenfalls verfügbar.
 - Keine inoffiziellen Carrier-APIs und kein Scraping. Ohne echten API-Schlüssel konnte das produktive Tracking nicht gegen ein Kundenkonto getestet werden.
 
 ## Entwicklung & Prüfung
@@ -56,7 +56,6 @@ Die gebündelten ML-Kit-Modelle lesen QR-/Barcodes und lateinischen Text auf dem
 Android Studio, JDK 17 und SDK 36; Gradle 8.13. In Android Studio öffnen oder mit installiertem Gradle:
 
 ```sh
-gradle wrapper --gradle-version 8.13
 ./gradlew testDebugUnitTest lintDebug assembleDebug
 ./gradlew connectedDebugAndroidTest
 ```
