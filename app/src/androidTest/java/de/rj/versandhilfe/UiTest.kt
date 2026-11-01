@@ -34,7 +34,8 @@ class UiTest {
         compose.setContent { VersandTheme { HomeScreen(repo, parcels, {}, {}, {}) } }
         screenshot("02-paketuebersicht")
         compose.onNode(hasSetTextAction()).performTextInput("Lieblingsjacke")
-        compose.onNode(hasText("Lieblingsjacke") and !hasSetTextAction()).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("parcel-list").performScrollToNode(hasText("Lieblingsjacke") and !hasSetTextAction())
+        compose.onNode(hasText("Lieblingsjacke") and !hasSetTextAction()).assertIsDisplayed()
         compose.onNodeWithText("Blaue Jeans").assertDoesNotExist()
     }
     @Test fun realAppCanOpenAndEditSavedParcel() {
@@ -53,13 +54,21 @@ class UiTest {
         val scenario = androidx.test.core.app.ActivityScenario.launch<MainActivity>(android.content.Intent(context, MainActivity::class.java))
         compose.onNodeWithText("Dein Versand").assertIsDisplayed()
         screenshot("04-app-uebersicht")
-        compose.onNodeWithText("Blaue Jeans").performScrollTo().performClick()
+        compose.onNodeWithTag("parcel-list").performScrollToNode(hasText("Blaue Jeans"))
+        compose.onNodeWithText("Blaue Jeans").performClick()
         compose.onNodeWithText("Versandlabel fehlt noch").assertIsDisplayed()
         screenshot("05-paketdetails")
         compose.onNodeWithContentDescription("Bearbeiten").performClick()
         compose.onNodeWithText("Paket bearbeiten").assertIsDisplayed()
         scenario.close()
         repo.prefs.edit().remove("folder").remove("folderName").commit()
+    }
+    @Test fun aiFieldsRequireReviewBeforeSaving() {
+        val parcel = Parcel(title = "Jacke", aiSummary = "Versandlabel erkannt", aiReviewRequired = true, aiEvidence = mapOf("Artikel" to "Jacke"))
+        compose.setContent { VersandTheme { EditorScreen(ParcelRepository(context), parcel, {}, {}, {}) } }
+        compose.onNodeWithText("Speichern").assertIsNotEnabled()
+        compose.onNode(isToggleable()).performClick()
+        compose.onNodeWithText("Speichern").assertIsEnabled()
     }
     @Test fun editorCannotSaveEmptyTitle() {
         compose.setContent { VersandTheme { EditorScreen(ParcelRepository(context), Parcel(), {}, {}, {}) } }

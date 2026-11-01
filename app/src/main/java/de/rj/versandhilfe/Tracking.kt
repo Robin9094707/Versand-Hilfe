@@ -184,7 +184,7 @@ class ShippingWorker(context: Context, params: WorkerParameters) : CoroutineWork
         val repo = (applicationContext as ShippingApp).repository
         repo.load()
         if (repo.loadError.value != null) return Result.failure()
-        var failed = !repo.backup()
+        var failed = if (repo.prefs.getBoolean("dirty", false)) !repo.backup() else false
         if (ApiKeyStore(applicationContext).hasKey()) {
             repo.parcels.value.filter { it.autoTrack && it.status != ParcelStatus.DELIVERED && it.trackingNumber.isNotBlank() && it.apiCourier.isNotBlank() && System.currentTimeMillis() - it.trackingCheckedAt > 6 * 60 * 60 * 1000 }.forEach {
                 if (isStopped) return Result.retry()

@@ -42,6 +42,7 @@ import kotlinx.coroutines.launch
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         SectionTitle("KI & dein Profil", "Dein persönlicher Versandhelfer – ganz freiwillig.")
         OutlinedTextField(name, { name = it.take(80) }, Modifier.fillMaxWidth(), label = { Text("Wie heißt du?") }, singleLine = true, shape = RoundedCornerShape(20.dp))
+        FilledTonalButton(onClick = { job { repo.modifyAssistant { it.copy(name = name.trim().take(80)) }; onMessage("Name gespeichert") } }, enabled = !busy) { Text("Namen speichern") }
         OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("Backup-Passwort") }, supportingText = { Text(if (vault.hasBackupPassword()) "Bereits auf diesem Gerät geschützt hinterlegt. Leer lassen oder neues Passwort wählen." else "Mindestens 10 Zeichen. Gut aufbewahren: Zum Wiederherstellen der API-Schlüssel nötig.") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), shape = RoundedCornerShape(20.dp), keyboardOptions = KeyboardOptions(autoCorrectEnabled = false))
         Button(onClick = { job { repo.configureAssistant(name, null, password, state.enabled); password = ""; onMessage("Profil und verschlüsseltes Schlüsselbackup gespeichert") } }, enabled = !busy && (password.length >= 10 || vault.hasBackupPassword()), modifier = Modifier.fillMaxWidth()) { Text("Profil & Schlüsselbackup speichern") }
         if (state.encryptedKeys.isNotBlank() && !vault.hasBackupPassword()) {

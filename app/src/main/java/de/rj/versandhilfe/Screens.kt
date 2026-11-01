@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -33,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import kotlinx.coroutines.launch
 import java.io.File
 import java.time.Instant
 import java.time.ZoneId
@@ -106,7 +108,7 @@ fun readableTime(value: Long): String = if (value == 0L) "Noch nicht" else DateT
             listOf(p.title, p.code, p.recipient, p.address, p.notes, p.location, p.platform, p.trackingNumber).any { it.contains(query, true) }
     }.let { list -> if (sort == "Frist zuerst") list.sortedWith(compareBy<Parcel> { it.dueDate.ifBlank { "9999" } }.thenBy { it.number }) else list.sortedByDescending { it.createdAt } }
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 104.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        LazyColumn(Modifier.fillMaxSize().testTag("parcel-list"), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 104.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item { ScreenHeading("Dein Versand", "Ein bisschen Ordnung. Viel mehr Überblick.") { IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, "Einstellungen") } } }
             item {
                 Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(32.dp)) {

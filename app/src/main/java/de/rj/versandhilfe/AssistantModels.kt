@@ -102,9 +102,18 @@ fun applyExtraction(p: Parcel, attachment: Attachment, e: AiExtraction): Parcel 
     val address = value("Adresse", e.address, p.address)
     val platform = value("Plattform", e.platform, if (p.platform == "Vinted" && p.title.isBlank()) "" else p.platform).ifBlank { p.platform }
     val order = value("Bestellnummer", e.orderNumber, p.orderNumber)
-    val tracking = value("Sendungsnummer", e.tracking, p.trackingNumber)
+    val candidateTracking = e.tracking?.takeIf { field ->
+        !field.value.matches(Regex("\\d{2}-\\d{5}-\\d{5}")) &&
+            field.value.replace(" ", "").matches(Regex("[A-Za-z0-9]{8,35}")) &&
+            Regex("sendung|tracking|paketnummer|shipment|awb|waybill", RegexOption.IGNORE_CASE).containsMatchIn(field.evidence)
+    }
+    val tracking = value("Sendungsnummer", candidateTracking, p.trackingNumber)
     val dueRaw = e.dueDate?.value.orEmpty()
-    val validDate = dueRaw.isNotBlank() && runCatching { LocalDate.parse(dueRaw) }.isSuccess
+    val dateEvidence = e.dueDate?.evidence.orEmpty()
+    val validDate = dueRaw.isNotBlank() && runCatching { LocalDate.parse(dueRaw) }.isSuccess &&
+        Regex("20[0-9]{2}").containsMatchIn(dateEvidence) &&
+        Regex("abgab|versend|verschick|frist|send by|ship by|bis|deadline", RegexOption.IGNORE_CASE).containsMatchIn(dateEvidence) &&
+        !Regex("erstellt|created|bestellt|ordered", RegexOption.IGNORE_CASE).containsMatchIn(dateEvidence)
     val due = value("Abgabefrist", if (validDate) e.dueDate else null, p.dueDate)
     val carrierName = value("Anbieter", e.carrier, "")
     val carrier = Carrier.entries.firstOrNull { it.name.equals(carrierName, true) || it.label.equals(carrierName, true) } ?: Carrier.UNKNOWN
