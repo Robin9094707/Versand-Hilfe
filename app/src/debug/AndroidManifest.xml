@@ -1,7 +1,0 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application>
-        <!-- System-permission-protected, debug-only provider for exercising Android's real SAF document APIs in tests. -->
-        <provider android:name=".FixtureDocumentsProvider" android:authorities="${applicationId}.fixture"
-            android:exported="true" android:permission="android.permission.MANAGE_DOCUMENTS" android:grantUriPermissions="true" />
-    </application>
-</manifest>

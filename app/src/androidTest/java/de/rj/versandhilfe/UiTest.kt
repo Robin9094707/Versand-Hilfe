@@ -129,7 +129,7 @@ class UiTest {
         var saved: Parcel? = null
         compose.setContent { VersandTheme { EditorScreen(ParcelRepository(context), Parcel(), {}, { saved = it }, {}) } }
         compose.onNodeWithText("Ist das Paket schon fertig?").assertIsDisplayed()
-        androidx.test.espresso.Espresso.pressBack()
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
         compose.onNodeWithText("Ist das Paket schon fertig?").assertIsDisplayed()
         compose.onNodeWithText("Wird noch gepackt").performClick()
         compose.onNodeWithText("Ohne Foto weiter").performClick()

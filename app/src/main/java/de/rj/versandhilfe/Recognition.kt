@@ -97,7 +97,7 @@ fun boundedPhoto(file: File, maxSide: Int = 2400): Bitmap {
     var sample = 1
     while (maxOf(bounds.outWidth, bounds.outHeight) / sample > maxSide) sample *= 2
     val decoded = android.graphics.BitmapFactory.decodeFile(file.path, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }) ?: error("Bild konnte nicht gelesen werden.")
-    val orientation = runCatching { android.media.ExifInterface(file).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1) }.getOrDefault(1)
+    val orientation = runCatching { android.media.ExifInterface(file.path).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1) }.getOrDefault(1)
     val matrix = android.graphics.Matrix()
     when (orientation) {
         2 -> matrix.setScale(-1f, 1f)
