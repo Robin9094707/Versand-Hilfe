@@ -139,22 +139,31 @@ class VintedQrService : AccessibilityService() {
         val root = applicationRoot() ?: return null
         try {
             if (root.packageName?.toString() != VintedQrPolicy.PACKAGE) return null
-            val all = mutableListOf<String>(); val headings = mutableListOf<String>()
+            val nodes = mutableListOf<AccessibilityNodeInfo>()
             var editable = false; var count = 0
             val height = resources.displayMetrics.heightPixels
             fun visit(node: AccessibilityNodeInfo, depth: Int) {
                 if (++count > 350 || depth > 24 || !node.isVisibleToUser) return
                 if (node.isEditable || node.isPassword) editable = true
-                val text = node.text?.toString()?.trim().orEmpty().take(500)
-                if (text.isNotBlank()) {
-                    all += text
-                    val bounds = Rect(); node.getBoundsInScreen(bounds)
-                    if (bounds.top in 0..(height * .32f).toInt()) headings += text
-                }
+                @Suppress("DEPRECATION")
+                nodes += AccessibilityNodeInfo.obtain(node)
                 repeat(minOf(node.childCount, 100)) { index -> node.getChild(index)?.let { child -> try { visit(child, depth + 1) } finally { @Suppress("DEPRECATION") child.recycle() } } }
             }
-            visit(root, 0)
-            if (!VintedQrPolicy.eligible(VintedQrPolicy.PACKAGE, headings, all, editable, true)) return null
+            var headings: List<String> = emptyList()
+            var all: List<String> = emptyList()
+            try {
+                // First inspect node flags only. Never request editable/password text.
+                visit(root, 0)
+                if (editable) return null
+                headings = nodes.filter { node ->
+                    val rect = Rect(); node.getBoundsInScreen(rect)
+                    rect.top >= 0 && rect.bottom <= (height * .22f).toInt() && rect.height() < height * .12f
+                }.mapNotNull { it.text?.toString()?.trim()?.take(500) }.filter { it.isNotBlank() }
+                if (!VintedQrPolicy.eligible(VintedQrPolicy.PACKAGE, headings, headings, false, true)) return null
+                // Read remaining visible text only after a known shipping heading was found.
+                all = nodes.mapNotNull { it.text?.toString()?.trim()?.take(500) }.filter { it.isNotBlank() }
+            } finally { nodes.forEach { @Suppress("DEPRECATION") it.recycle() } }
+            if (!VintedQrPolicy.eligible(VintedQrPolicy.PACKAGE, headings, all, false, true)) return null
             val context = VintedQrPolicy.safeContext(all)
             val signature = digest((root.windowId.toString() + all.joinToString("\n")).toByteArray())
             return Preview(root.windowId, signature, context)

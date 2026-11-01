@@ -41,7 +41,7 @@ class VintedAssistTest {
     }
     @Test fun accessibilityImportRequiresShippingPreviewConsentAndConfirmationAndSkipsDuplicates() = runBlocking {
         val inst = InstrumentationRegistry.getInstrumentation()
-        Configurator.getInstance().uiAutomationFlags = UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES
+        Configurator.getInstance().setUiAutomationFlags(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
         val device = UiDevice.getInstance(inst)
         val oldServices = device.executeShellCommand("settings get secure enabled_accessibility_services").trim()
         val repo = (context.applicationContext as ShippingApp).repository
@@ -86,7 +86,7 @@ class VintedAssistTest {
             repo.modifyAssistant { it.copy(vintedQrHelp = false) }
             device.executeShellCommand("settings put secure enabled_accessibility_services ${if (oldServices.isBlank() || oldServices == "null") "null" else oldServices}")
             device.executeShellCommand("settings put secure accessibility_enabled ${if (oldServices.isBlank() || oldServices == "null") "0" else "1"}")
-            Configurator.getInstance().uiAutomationFlags = 0
+            Configurator.getInstance().setUiAutomationFlags(0)
         }
         Unit
     }
