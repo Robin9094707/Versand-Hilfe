@@ -9,7 +9,7 @@ import android.provider.DocumentsContract.Root
 import android.provider.DocumentsProvider
 import java.io.File
 
-/** Exists only in debug builds and is not accessible to other apps. */
+/** Exists only in debug builds; guarded by the system MANAGE_DOCUMENTS permission. */
 class FixtureDocumentsProvider : DocumentsProvider() {
     private val base get() = File(context!!.filesDir, "saf-fixture").apply { mkdirs() }
     private fun file(id: String): File {

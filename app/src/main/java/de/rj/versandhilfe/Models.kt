@@ -28,7 +28,7 @@ val AppJson = Json { ignoreUnknownKeys = true; prettyPrint = true; encodeDefault
             UPS -> "https://www.ups.com/track?loc=de_DE&tracknum=$n"
             GLS -> "https://gls-group.com/DE/de/paketverfolgung/?match=$n"
             FEDEX -> "https://www.fedex.com/fedextrack/?trknbr=$n"
-            POST -> "https://www.deutschepost.de/sendung/simpleQuery.html?form.sendungsnummer=$n"
+            POST -> "https://www.deutschepost.de/de/s/sendungsverfolgung.html?form.sendungsnummer=$n"
             else -> null
         }
     }

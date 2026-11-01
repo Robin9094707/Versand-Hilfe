@@ -12,6 +12,8 @@ concurrency:
   cancel-in-progress: true
 jobs:
   build:
+    env:
+      VERSANDHILFE_DEBUG_KEYSTORE: ${{ runner.temp }}/versandhilfe-debug.keystore
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -31,8 +33,13 @@ jobs:
       - name: Restore consistent test signing key
         uses: actions/cache@v4
         with:
-          path: ~/.android/debug.keystore
-          key: versandhilfe-debug-signing-v1
+          path: ${{ runner.temp }}/versandhilfe-debug.keystore
+          key: versandhilfe-debug-signing-v2
+      - name: Ensure test signing key exists
+        run: |
+          if [ ! -f "$VERSANDHILFE_DEBUG_KEYSTORE" ]; then
+            keytool -genkeypair -keystore "$VERSANDHILFE_DEBUG_KEYSTORE" -storepass android -keypass android -alias androiddebugkey -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
+          fi
       - name: Tests, lint and installable APK
         run: ./gradlew testDebugUnitTest lintDebug assembleDebug --stacktrace
       - name: Name APK

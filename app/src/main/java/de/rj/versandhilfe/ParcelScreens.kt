@@ -68,7 +68,11 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
             try {
                 val attachment = repo.attach(uri, kind)
                 parcel = parcel.copy(attachments = parcel.attachments + attachment)
-                if (kind in listOf(AttachmentKind.LABEL, AttachmentKind.ADDRESS)) scan = recognize(repo, attachment)
+                if (kind in listOf(AttachmentKind.LABEL, AttachmentKind.ADDRESS)) {
+                    val result = recognize(repo, attachment)
+                    if (parcel.carrier == Carrier.UNKNOWN && result.suggestedCarrier != Carrier.UNKNOWN) parcel = parcel.copy(carrier = result.suggestedCarrier)
+                    scan = result
+                }
                 if (camera) File(cameraPath).delete()
             } catch (e: Exception) { onMessage(e.message ?: "Anhang konnte nicht gelesen werden") } finally { working = false }
         }
