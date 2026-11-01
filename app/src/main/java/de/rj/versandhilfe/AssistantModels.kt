@@ -12,7 +12,7 @@ const val AI_MODEL = "gpt-5.6-luna"
     val encryptedKeys: String = "", val updatedAt: Long = 0,
     val usageDate: String = "", val calls: Int = 0, val inputTokens: Long = 0, val outputTokens: Long = 0,
     val messages: List<ParcelChatMessage> = emptyList(),
-    val numberDigits: Int = 2, val nextPackageNumber: Int = 1, val profileComplete: Boolean = false,
+    val vintedQrHelp: Boolean = false, val numberDigits: Int = 2, val nextPackageNumber: Int = 1, val profileComplete: Boolean = false,
     val reminderEveryHours: Int = 24, val fullScreenReminders: Boolean = true
 )
 @Serializable data class ParcelChatMessage(

@@ -37,7 +37,8 @@ val AppJson = Json { ignoreUnknownKeys = true; prettyPrint = true; encodeDefault
     val id: String = UUID.randomUUID().toString(), val name: String, val mime: String,
     val file: String, val sha256: String, val kind: AttachmentKind,
     val detectedKinds: List<AttachmentKind> = emptyList(), val aiAnalyzed: Boolean = false,
-    val rawCodes: List<String> = emptyList(), val qrCodes: List<String> = emptyList()
+    val rawCodes: List<String> = emptyList(), val qrCodes: List<String> = emptyList(),
+    val importText: String = "", val localCodeScanned: Boolean = false
 ) { fun hasKind(value: AttachmentKind) = kind == value || value in detectedKinds }
 @Serializable data class ParcelEvent(
     val at: Long = System.currentTimeMillis(), val text: String, val source: String = "Manuell"
@@ -52,7 +53,7 @@ val AppJson = Json { ignoreUnknownKeys = true; prettyPrint = true; encodeDefault
     val attachments: List<Attachment> = emptyList(), val events: List<ParcelEvent> = emptyList(),
     val updatedAt: Long = System.currentTimeMillis(), val createdAt: Long = System.currentTimeMillis(),
     val trackingSummary: String = "", val trackingCheckedAt: Long = 0, val trackingError: String = "",
-    val numberDigits: Int = 3, val snoozedUntil: Long = 0, val lastReminderAt: Long = 0,
+    val screenReviewPending: Boolean = false, val numberDigits: Int = 3, val snoozedUntil: Long = 0, val lastReminderAt: Long = 0,
     val orderNumber: String = "", val aiSummary: String = "", val aiEvidence: Map<String, String> = emptyMap(), val aiReviewRequired: Boolean = false
 ) {
     val code get() = "P-${number.toString().padStart(numberDigits, '0')}"
@@ -74,6 +75,7 @@ fun validateArchive(archive: Archive) {
         require(p.number > 0 && p.numberDigits in 2..3) { "Ungültige Paketnummer im Backup." }
         require(p.id.matches(Regex("[a-zA-Z0-9-]{1,80}"))) { "Ungültige Paket-ID." }
         p.attachments.forEach { a ->
+            require(a.importText.length <= 3000) { "Zu langer Importhinweis im Backup." }
             require(a.qrCodes.size <= 20 && a.qrCodes.all { it in a.rawCodes }) { "Ungültige QR-Auswahl." }
             require(a.rawCodes.size <= 20 && a.rawCodes.all { it.length <= 12000 }) { "Zu viele oder zu lange QR-Inhalte im Backup." }
             require(a.file.matches(Regex("[a-f0-9]{64}\\.(jpg|png|webp|pdf)"))) { "Ungültiger Dateipfad im Backup." }

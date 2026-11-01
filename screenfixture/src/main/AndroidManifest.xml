@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:label="QR-Testvorschau (keine Vinted-App)" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:allowBackup="false">
+        <activity android:name=".PreviewActivity" android:exported="true" />
+    </application>
+</manifest>

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vinted_qr_service_name">Versandhilfe · Vinted-QR</string>
+    <string name="vinted_qr_description">Optionale Hilfe für Versand-QR-Codes in Vinted. Nach deiner ausdrücklichen Einrichtung werden erkennbare Versandvorschauen lokal gelesen. Erst nach „Übernehmen“ werden ein QR-Ausschnitt und Versandtexte gespeichert. Andere Apps werden nicht nach Inhalten durchsucht. Login-, Zahlungs- und Eingabeseiten werden übersprungen. Technisch erlaubt Android dabei weitreichenden Bildschirmzugriff; auf Android 11–13 wird kurz ein gesamtes Bildschirmbild im Arbeitsspeicher verarbeitet. Keine dauerhafte Aufnahme, keine automatischen Klicks und keine automatische KI-Übertragung beim Erkennen. In Versandhilfe jederzeit ausschaltbar.</string>
+</resources>

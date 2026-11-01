@@ -50,7 +50,7 @@ import java.time.ZoneOffset
 
 private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(it) }, restore = { AppJson.decodeFromString<Parcel>(it) })
 @Composable fun EditorScreen(repo: ParcelRepository, original: Parcel, onBack: () -> Unit, onSave: (Parcel) -> Unit, onMessage: (String) -> Unit) {
-    var parcel by rememberSaveable(original.id, stateSaver = ParcelSaver) { mutableStateOf(original) }
+    var parcel by rememberSaveable(original.id, stateSaver = ParcelSaver) { mutableStateOf(if (original.screenReviewPending) original.copy(title = "") else original) }
     val aiState by repo.assistant.collectAsStateWithLifecycle()
     val access = rememberVaultAccess(repo, aiState)
     val aiReady = access.ready
@@ -61,13 +61,14 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
     var viewer by remember { mutableStateOf<Attachment?>(null) }
     var discard by remember { mutableStateOf(false) }
     var dateDialog by remember { mutableStateOf(false) }
-    var packingChoice by rememberSaveable(original.id) { mutableStateOf(original.title.isBlank()) }
+    var packingChoice by rememberSaveable(original.id) { mutableStateOf(original.title.isBlank() || original.screenReviewPending) }
     var uploadStep by rememberSaveable { mutableStateOf(false) }
     var guideStep by rememberSaveable { mutableIntStateOf(0) }
     var scannerOpen by rememberSaveable { mutableStateOf(false) }
     var cameraPath by rememberSaveable { mutableStateOf("") }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val guidedImport = original.title.isBlank() || original.screenReviewPending
     fun leave() { if (parcel != original) discard = true else onBack() }
     fun add(uri: Uri, camera: Boolean = false, scannedCodes: List<String> = emptyList()) {
         if (working) return
@@ -90,13 +91,13 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
                     guideStep = 1
                     onMessage("Erkannt. Wir gehen die Angaben kurz zusammen durch.")
                 } else if (result.codes.isNotEmpty() || kind in listOf(AttachmentKind.LABEL, AttachmentKind.ADDRESS)) {
-                    if (original.title.isBlank()) guideStep = 1 else scan = result
-                } else if (original.title.isBlank()) guideStep = 1
+                    if (guidedImport) guideStep = 1 else scan = result
+                } else if (guidedImport) guideStep = 1
                 if (camera) File(cameraPath).delete()
             } catch (e: Exception) {
                 onMessage(e.message ?: "Anhang konnte nicht gelesen werden")
                 attached?.let { a -> scan = runCatching { recognize(repo, a) }.getOrNull() }
-            } finally { working = false; if (original.title.isBlank() && parcel.attachments.isNotEmpty()) { scan = null; guideStep = 1 }; if (camera) File(cameraPath).delete() }
+            } finally { working = false; if (guidedImport && parcel.attachments.isNotEmpty()) { scan = null; guideStep = 1 }; if (camera) File(cameraPath).delete() }
         }
     }
     val scannerPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -124,7 +125,7 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
                 if (aiReady) parcel = applyExtraction(parcel, stored, ParcelAi(repo).analyze(stored, local))
             }; if (aiReady || parcel.attachments.any { it.rawCodes.isNotEmpty() }) guideStep = 1 }
             catch (e: Exception) { onMessage(e.message ?: "Automatische Erkennung nicht verfügbar. Angaben bleiben manuell bearbeitbar.") }
-            finally { working = false; if (original.title.isBlank() && parcel.attachments.isNotEmpty()) guideStep = 1 }
+            finally { working = false; if (guidedImport && parcel.attachments.isNotEmpty()) guideStep = 1 }
         }
     }
     BackHandler { if (!working) leave() }
@@ -205,7 +206,7 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
         scan = null; guideStep = 1
     }, onCandidate = { c -> parcel = parcel.copy(trackingNumber = c.number, carrier = if (c.carrier == Carrier.UNKNOWN) parcel.carrier else c.carrier); scan = null },
         onText = { asAddress -> parcel = if (asAddress) parcel.copy(address = result.text) else parcel.copy(notes = listOf(parcel.notes, result.text).filter { it.isNotBlank() }.joinToString("\n\n")); scan = null }) }
-    if (packingChoice) PackingChoice(onChoose = { parcel = parcel.copy(status = it); packingChoice = false; uploadStep = parcel.attachments.isEmpty() }, onCancel = onBack)
+    if (packingChoice) PackingChoice(onChoose = { parcel = parcel.copy(status = it, screenReviewPending = false); packingChoice = false; uploadStep = parcel.attachments.isEmpty() }, onCancel = onBack)
     if (uploadStep && !scannerOpen && !working) IntakeUpload(aiReady,
         onFile = { kindName = if (aiReady) "AUTO" else AttachmentKind.LABEL.name; picker.launch(arrayOf("image/jpeg", "image/png", "image/webp", "application/pdf")) },
         onScanner = { if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) scannerOpen = true else scannerPermission.launch(android.Manifest.permission.CAMERA) },

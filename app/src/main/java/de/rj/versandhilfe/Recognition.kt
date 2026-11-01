@@ -127,7 +127,7 @@ suspend fun recognize(repository: ParcelRepository, attachment: Attachment): Sca
         val decoded = scanner.process(image).await()
         val codes = decoded.mapNotNull { it.rawValue }.distinct()
         val qrCodes = (attachment.qrCodes + decoded.filter { it.format == com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE }.mapNotNull { it.rawValue }).distinct().filter { it.length <= 12000 }.take(20)
-        val text = recognizer.process(image).await().text
+        val text = listOf(recognizer.process(image).await().text, attachment.importText).filter { it.isNotBlank() }.joinToString("\n")
         val allCodes = (attachment.rawCodes + codes).distinct().filter { it.length <= 12000 }.take(20)
         val carrier = if (ShippingCodeParser.analyze(allCodes).parsed.isNotEmpty()) Carrier.DHL else TrackingDetector.carrier(text + allCodes.joinToString(" "))
         ScanResult(allCodes, text, TrackingDetector.candidates(allCodes, text), carrier, qrCodes)

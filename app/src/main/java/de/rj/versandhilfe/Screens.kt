@@ -220,6 +220,7 @@ fun readableTime(value: Long): String = if (value == 0L) "Noch nicht" else DateT
         item { ScreenHeading("Gut aufgehoben", "Dein Profil, KI-Modus und Sicherung.") }
         item { AssistantSettings(repo, onMessage) }
         item { ParcelSettings(repo, onNotification, onMessage) }
+        item { VintedHelpSettings(repo, onMessage) }
         item { InfoCard(Icons.Outlined.FolderOpen, repo.folderName, "$backup\nLetzte Sicherung: ${readableTime(repo.lastBackup)}") }
         item { Text("Sicherung & Wiederherstellung", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
         item { ActionRow(Icons.Outlined.FolderOpen, "Ordner auswählen / wieder verbinden", "Nach Neuinstallation denselben Ordner wählen", onFolder) }

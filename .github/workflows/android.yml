@@ -43,11 +43,11 @@ jobs:
       - name: Tests, lint and installable APK
         run: ./gradlew testDebugUnitTest lintDebug lintRelease assembleRelease --stacktrace
       - name: Name APK
-        run: cp app/build/outputs/apk/release/app-release.apk Versandhilfe-3.0.0.apk
+        run: cp app/build/outputs/apk/release/app-release.apk Versandhilfe-3.1.0.apk
       - uses: actions/upload-artifact@v4
         with:
           name: Versandhilfe-Android-APK
-          path: Versandhilfe-3.0.0.apk
+          path: Versandhilfe-3.1.0.apk
           if-no-files-found: error
           retention-days: 30
       - name: Reports
@@ -86,7 +86,9 @@ jobs:
           profile: pixel_6
           disable-animations: true
           script: |
-            ./gradlew connectedDebugAndroidTest assembleRelease
+            ./gradlew :screenfixture:assembleDebug
+            adb install screenfixture/build/outputs/apk/debug/screenfixture-debug.apk
+            ./gradlew :app:connectedDebugAndroidTest :app:assembleRelease
             adb logcat -b crash -c
             adb install -r app/build/outputs/apk/release/app-release.apk
             adb shell am force-stop de.rj.versandhilfe

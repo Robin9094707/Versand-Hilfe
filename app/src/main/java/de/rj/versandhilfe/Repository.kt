@@ -150,9 +150,10 @@ class ParcelRepository(val context: Context) {
     suspend fun addChat(question: String, answer: ParcelAnswer) = modifyAssistant {
         it.copy(messages = (it.messages + listOf(ParcelChatMessage(role = "user", text = question.take(1000)), ParcelChatMessage(role = "assistant", text = answer.text.take(12000), parcelIds = answer.parcels.map { p -> p.id }))).takeLast(80))
     }
-    suspend fun save(parcel: Parcel, waitForBackup: Boolean = true): Parcel = withContext(Dispatchers.IO) {
+    suspend fun save(parcel: Parcel, waitForBackup: Boolean = true, deduplicateCodes: Boolean = false): Parcel = withContext(Dispatchers.IO) {
         mutex.withLock {
             require(loadError.value == null) { "Bitte zuerst die Daten aus einer Sicherung wiederherstellen." }
+            if (deduplicateCodes) VintedQrPolicy.duplicate(_parcels.value, parcel.attachments.flatMap { it.rawCodes + it.qrCodes })?.let { return@withLock it }
             val previous = _parcels.value.find { it.id == parcel.id }
             require(previous == null || previous.status != ParcelStatus.DELIVERED || parcel.status == ParcelStatus.DELIVERED || _parcels.value.none { it.id != parcel.id && it.status != ParcelStatus.DELIVERED && it.number == previous.number }) { "Diese Nummer wird inzwischen von einem offenen Paket verwendet. Bitte dieses alte Paket abgeschlossen lassen und bei Bedarf ein neues anlegen." }
             val allocated = if (previous == null) allocateParcelNumber(_parcels.value, _assistant.value.numberDigits, _assistant.value.nextPackageNumber) else previous.number

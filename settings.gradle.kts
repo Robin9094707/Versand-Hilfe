@@ -5,3 +5,5 @@ dependencyResolutionManagement {
 }
 rootProject.name = "Versandhilfe"
 include(":app")
+
+include(":screenfixture")

@@ -25,6 +25,12 @@
                 <data android:mimeType="application/pdf" />
             </intent-filter>
         </activity>
+        <service android:name=".VintedQrService" android:exported="true"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:label="@string/vinted_qr_service_name">
+            <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/vinted_accessibility_service" />
+        </service>
         <activity android:name=".ParcelAlarmActivity" android:exported="false" android:launchMode="singleTop" android:showWhenLocked="true" android:turnScreenOn="true" android:theme="@style/Theme.Versandhilfe" />
         <receiver android:name=".ParcelAlarmReceiver" android:exported="false" />
         <receiver android:name=".ReminderBootReceiver" android:exported="false">

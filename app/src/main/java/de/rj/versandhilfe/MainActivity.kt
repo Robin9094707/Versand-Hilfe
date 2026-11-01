@@ -36,18 +36,20 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val received = mutableStateOf<List<Uri>>(emptyList())
+    private val openEditor = mutableStateOf(false)
     private val openedParcel = mutableStateOf<String?>(null)
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         acceptIntent(intent)
-        setContent { VersandTheme { VersandApp((application as ShippingApp).repository, received.value, openedParcel.value, { received.value = emptyList() }, { openedParcel.value = null }) } }
+        setContent { VersandTheme { VersandApp((application as ShippingApp).repository, received.value, openedParcel.value, { received.value = emptyList() }, { openedParcel.value = null; openEditor.value = false }, openEditor.value) } }
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); acceptIntent(intent) }
     @Suppress("DEPRECATION")
     private fun acceptIntent(intent: Intent) {
-        openedParcel.value = intent.getStringExtra("parcelId")
+        openEditor.value = intent.hasExtra("editParcelId")
+        openedParcel.value = intent.getStringExtra("editParcelId") ?: intent.getStringExtra("parcelId")
         received.value = when (intent.action) {
             Intent.ACTION_SEND -> listOfNotNull(intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM))
             Intent.ACTION_SEND_MULTIPLE -> intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)?.toList().orEmpty()
@@ -66,7 +68,7 @@ private val LightPalette = lightColorScheme(
     val colors = if (isSystemInDarkTheme()) darkColorScheme(primary = Color(0xFFD1BCFF), primaryContainer = Color(0xFF50318D), secondaryContainer = Color(0xFF234D3C), tertiaryContainer = Color(0xFF6E3B26)) else LightPalette
     MaterialTheme(colorScheme = colors, typography = Typography(), shapes = Shapes(medium = RoundedCornerShape(20.dp), large = RoundedCornerShape(28.dp), extraLarge = RoundedCornerShape(32.dp)), content = content)
 }
-@Composable fun VersandApp(repo: ParcelRepository, received: List<Uri>, openedParcel: String?, consumeShare: () -> Unit, consumeOpen: () -> Unit) {
+@Composable fun VersandApp(repo: ParcelRepository, received: List<Uri>, openedParcel: String?, consumeShare: () -> Unit, consumeOpen: () -> Unit, openEditor: Boolean = false) {
     val parcels by repo.parcels.collectAsStateWithLifecycle()
     val loaded by repo.loaded.collectAsStateWithLifecycle()
     val loadError by repo.loadError.collectAsStateWithLifecycle()
@@ -102,7 +104,7 @@ private val LightPalette = lightColorScheme(
     val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) job { val n = repo.importZip(uri); message("$n Pakete eingelesen und mit deiner Sammlung zusammengeführt") } }
     LaunchedEffect(Unit) { repo.load(); kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ReminderScheduler(context).scheduleAll(repo) } }
     LaunchedEffect(openedParcel, loaded) {
-        if (loaded && openedParcel != null) { detailId = openedParcel; route = "detail"; consumeOpen() }
+        if (loaded && openedParcel != null) { detailId = openedParcel; if (openEditor) editId = openedParcel; route = if (openEditor) "edit" else "detail"; consumeOpen() }
     }
     LaunchedEffect(received, loaded, onboarded) {
         if (loaded && onboarded && received.isNotEmpty()) {

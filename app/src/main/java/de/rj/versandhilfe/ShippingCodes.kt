@@ -62,7 +62,7 @@ fun applyLocalCodes(p: Parcel, attachment: Attachment, codes: List<String>, qrCo
     }
     return p.copy(recipient = p.recipient.ifBlank { recipient?.name.orEmpty() }, address = p.address.ifBlank { recipient?.address.orEmpty() },
         carrier = if (analysis.parsed.isNotEmpty() && p.carrier == Carrier.UNKNOWN) Carrier.DHL else p.carrier,
-        attachments = p.attachments.map { if (it.id == attachment.id) it.copy(rawCodes = raw, qrCodes = (it.qrCodes + qrCodes).distinct().filter { it in raw }.take(20), detectedKinds = if (analysis.parsed.isNotEmpty()) (it.detectedKinds + it.kind + AttachmentKind.LABEL + AttachmentKind.ADDRESS).distinct() else it.detectedKinds) else it },
+        attachments = p.attachments.map { if (it.id == attachment.id) it.copy(localCodeScanned = true, rawCodes = raw, qrCodes = (it.qrCodes + qrCodes).distinct().filter { it in raw }.take(20), detectedKinds = if (analysis.parsed.isNotEmpty()) (it.detectedKinds + it.kind + AttachmentKind.LABEL + AttachmentKind.ADDRESS).distinct() else it.detectedKinds) else it },
         aiEvidence = p.aiEvidence + evidence, aiSummary = listOf(p.aiSummary, note).filter { it.isNotBlank() }.distinct().joinToString("\n").take(3000),
         aiReviewRequired = p.aiReviewRequired || recipient != null || analysis.needsChoice)
 }
