@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
     val allCodes = parcel.attachments.flatMap { it.rawCodes }
     val codes = remember(allCodes) { ShippingCodeParser.analyze(allCodes) }
     val known = codes.recipient
+    val pending = ParcelFacts.pending(parcel)
     val complete = parcel.title.isNotBlank() && parcel.recipient.isNotBlank() && parcel.location.isNotBlank()
     AlertDialog(onDismissRequest = { onStep(0) }, icon = { Icon(Icons.Outlined.Inventory2, null) }, title = { Text(when (step) {
         1 -> "Was ist im Paket?"; 2 -> "Für wen ist das Paket?"; 3 -> "Wo liegt das Paket?"; else -> "Alles richtig?"
@@ -48,8 +49,8 @@ import androidx.compose.ui.unit.dp
                     Text("Liegt bei: ${parcel.location.ifBlank { "noch offen" }}")
                     Text("Abgeben bis: ${parcel.dueDate.ifBlank { "keine bestätigte Frist" }}")
                     if (parcel.aiSummary.isNotBlank()) Text(parcel.aiSummary.take(900), style = MaterialTheme.typography.bodySmall)
-                    Text("Du entscheidest: Ist es fertig gepackt oder möchtest du es erst einmal anlegen?")
-                    if (!complete) Text("Für „Bereit“ fehlen noch Paketname, Empfänger oder Lagerplatz. Du kannst es erst einmal in Vorbereitung speichern.")
+                    Text(if (pending) "Du entscheidest: Ist es fertig gepackt oder möchtest du es erst einmal anlegen?" else "Der Versandstatus bleibt: ${parcel.status.label}.")
+                    if (pending && !complete) Text("Für „Bereit“ fehlen noch Paketname, Empfänger oder Lagerplatz. Du kannst es erst einmal in Vorbereitung speichern.")
                     Text("Danach unten auf „Paket speichern“ tippen.", style = MaterialTheme.typography.labelMedium)
                 }
             }
@@ -59,9 +60,10 @@ import androidx.compose.ui.unit.dp
             onChange(when (step) { 1 -> parcel.copy(title = title.trim()); 2 -> parcel.copy(recipient = name.trim(), address = address.trim()); else -> parcel.copy(location = location.trim()) })
             onStep(step + 1)
         }) { Text("Weiter") }
+        else if (!pending) Button(onClick = { onChange(parcel.copy(aiReviewRequired = false)); onStep(0) }) { Text("Angaben übernehmen") }
         else Button(onClick = { onChange(parcel.copy(status = ParcelStatus.READY, aiReviewRequired = false)); onStep(0) }, enabled = complete) { Text("Bereit zum Abgeben") }
     }, dismissButton = {
-        if (step == 4) TextButton(onClick = { onChange(parcel.copy(status = ParcelStatus.DRAFT, aiReviewRequired = false)); onStep(0) }) { Text("Erst einmal anlegen") }
+        if (step == 4 && pending) TextButton(onClick = { onChange(parcel.copy(status = ParcelStatus.DRAFT, aiReviewRequired = false)); onStep(0) }) { Text("Erst einmal anlegen") }
         else TextButton(onClick = { onStep(0) }) { Text("Im Formular weiter") }
     })
 }

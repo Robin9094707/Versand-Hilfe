@@ -109,6 +109,14 @@ class UiTest {
             org.junit.Assert.assertFalse(result.aiReviewRequired)
         }
     }
+    @Test fun addingAReceiptCannotReopenAnAlreadyShippedParcel() {
+        var result = Parcel(title = "Jeans", status = ParcelStatus.SHIPPED, aiReviewRequired = true)
+        compose.setContent { VersandTheme { IntakeGuide(result, 4, { result = it }, {}) } }
+        compose.onNodeWithText("Bereit zum Abgeben").assertDoesNotExist()
+        compose.onNodeWithText("Angaben übernehmen").performClick()
+        org.junit.Assert.assertEquals(ParcelStatus.SHIPPED, result.status)
+        org.junit.Assert.assertFalse(result.aiReviewRequired)
+    }
     @Test fun incompleteIntakeCanStayDraftWithoutInventingMissingFields() {
         var result = Parcel(title = "Karton", aiReviewRequired = true)
         compose.setContent { VersandTheme { IntakeGuide(result, 4, { result = it }, {}) } }
