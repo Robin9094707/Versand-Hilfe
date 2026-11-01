@@ -62,7 +62,7 @@ class UiTest {
         compose.onNode(hasSetTextAction()).performTextInput("Wie ist das Wetter heute?")
         compose.onNodeWithContentDescription("Frage senden").performClick()
         compose.waitUntil(10000) { repo.assistant.value.messages.any { it.text == ParcelFacts.refusal } }
-        compose.onNodeWithText(ParcelFacts.refusal).assertIsDisplayed()
+        compose.onNodeWithText(ParcelFacts.refusal).performScrollTo().assertIsDisplayed()
         org.junit.Assert.assertEquals(0, repo.assistant.value.calls)
         screenshot("06-pakethelfer")
         compose.onNodeWithText("Pakete").performClick()
@@ -135,9 +135,9 @@ class UiTest {
         compose.onNodeWithText("Ohne Foto weiter").performClick()
         compose.onNodeWithText("Was verschickst du?").performTextInput("Testjeans")
         compose.onNodeWithText("Weiter").performClick()
-        compose.onNodeWithText("Empfänger / Benutzername").performTextInput("Ben Muster")
+        compose.onNode(hasText("Empfänger / Benutzername") and hasAnyAncestor(isDialog())).performTextInput("Ben Muster")
         compose.onNodeWithText("Weiter").performClick()
-        compose.onNodeWithText("Lagerplatz").performTextInput("Regal links")
+        compose.onNode(hasText("Lagerplatz") and hasAnyAncestor(isDialog())).performTextInput("Regal links")
         compose.onNodeWithText("Weiter").performClick()
         compose.onNodeWithText("In Vorbereitung speichern").performClick()
         compose.runOnIdle { org.junit.Assert.assertEquals(ParcelStatus.DRAFT, saved!!.status); org.junit.Assert.assertEquals("Testjeans", saved!!.title) }
