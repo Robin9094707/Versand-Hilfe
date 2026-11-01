@@ -47,7 +47,11 @@ class SecretVault(private val context: Context) {
     private val passwordStore get() = ApiKeyStore(context, "backup-password")
     val openAi get() = ApiKeyStore(context, "openai")
     val tracking get() = ApiKeyStore(context)
-    fun ready(state: AssistantState) = state.enabled && openAi.hasKey()
+    private val marker get() = ApiKeyStore(context, "vault-marker")
+    fun unlocked(state: AssistantState) = state.encryptedKeys.isNotBlank() && passwordStore.hasKey() && marker.read() == digest(state.encryptedKeys.toByteArray())
+    fun mark(envelope: String) { marker.save(digest(envelope.toByteArray())) }
+    fun clear() { openAi.save(""); tracking.save(""); passwordStore.save(""); marker.save("") }
+    fun ready(state: AssistantState) = state.enabled && openAi.hasKey() && unlocked(state)
     fun hasBackupPassword() = passwordStore.hasKey()
     fun envelope(password: String? = null, openAiValue: String? = null, trackingValue: String? = null): String {
         val pass = password?.takeIf { it.isNotBlank() } ?: passwordStore.read()
@@ -57,6 +61,6 @@ class SecretVault(private val context: Context) {
     fun rememberPassword(password: String) { if (password.isNotBlank()) passwordStore.save(password) }
     fun unlock(envelope: String, password: String) {
         val bundle = try { BackupCrypto.decrypt(envelope, password) } catch (e: Exception) { throw IllegalArgumentException("Passwort falsch oder Schlüsselbackup beschädigt.") }
-        openAi.save(bundle.openAi); tracking.save(bundle.trackingMore); passwordStore.save(password)
+        openAi.save(bundle.openAi); tracking.save(bundle.trackingMore); passwordStore.save(password); mark(envelope)
     }
 }

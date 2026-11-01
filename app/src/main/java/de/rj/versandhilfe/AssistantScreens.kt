@@ -33,6 +33,7 @@ import kotlinx.coroutines.launch
     var password by remember { mutableStateOf("") }
     var consent by rememberSaveable { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
+    var resetKeys by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     fun job(block: suspend () -> Unit) {
         if (busy) return
@@ -45,9 +46,10 @@ import kotlinx.coroutines.launch
         FilledTonalButton(onClick = { job { repo.modifyAssistant { it.copy(name = name.trim().take(80)) }; onMessage("Name gespeichert") } }, enabled = !busy) { Text("Namen speichern") }
         OutlinedTextField(password, { password = it }, Modifier.fillMaxWidth(), label = { Text("Backup-Passwort") }, supportingText = { Text(if (vault.hasBackupPassword()) "Bereits auf diesem Gerät geschützt hinterlegt. Leer lassen oder neues Passwort wählen." else "Mindestens 10 Zeichen. Gut aufbewahren: Zum Wiederherstellen der API-Schlüssel nötig.") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), shape = RoundedCornerShape(20.dp), keyboardOptions = KeyboardOptions(autoCorrectEnabled = false))
         Button(onClick = { job { repo.configureAssistant(name, null, password, state.enabled); password = ""; onMessage("Profil und verschlüsseltes Schlüsselbackup gespeichert") } }, enabled = !busy && (password.length >= 10 || vault.hasBackupPassword()), modifier = Modifier.fillMaxWidth()) { Text("Profil & Schlüsselbackup speichern") }
-        if (state.encryptedKeys.isNotBlank() && !vault.hasBackupPassword()) {
+        if (state.encryptedKeys.isNotBlank() && !vault.unlocked(state)) {
             InfoCard(Icons.Outlined.Lock, "Schlüsselbackup gefunden", "Nach einer Neuinstallation dein Backup-Passwort eingeben und entsperren. OpenAI und TrackingMore sind danach wieder verfügbar.")
             FilledTonalButton(onClick = { job { repo.unlockKeys(password); password = ""; onMessage("API-Schlüssel entsperrt") } }, enabled = !busy && password.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("API-Schlüssel aus Backup entsperren") }
+            TextButton(onClick = { resetKeys = true }) { Text("Passwort vergessen: Schlüsselbackup zurücksetzen") }
         }
         InfoCard(Icons.Outlined.AutoAwesome, "Automatisch erkennen mit GPT-5.6 Luna", "Foto, QR-Label, Adresse oder Vinted-Screenshot: Die KI schlägt die Zuordnung und passende Felder vor. Deine Bilder und der erkannte Text werden dazu an OpenAI gesendet. Fehler bleiben möglich – Angaben vor dem Speichern prüfen.", MaterialTheme.colorScheme.primaryContainer)
         Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(consent, { consent = it }); Text("Ich möchte Bilder und Versandtexte mit meinem eigenen OpenAI-API-Schlüssel auswerten. API-Nutzung wird separat abgerechnet.", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium) }
@@ -67,6 +69,7 @@ import kotlinx.coroutines.launch
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         HorizontalDivider()
     }
+    if (resetKeys) AlertDialog(onDismissRequest = { resetKeys = false }, title = { Text("Schlüsselbackup zurücksetzen?") }, text = { Text("OpenAI- und TrackingMore-Schlüssel werden auf diesem Gerät entfernt. Danach kannst du neue Schlüssel und ein neues Passwort hinterlegen. Paketdaten, Profil und Chat bleiben bestehen. Frühere Backups behalten ihre alten Schlüssel.") }, confirmButton = { TextButton(onClick = { resetKeys = false; job { repo.resetKeys(); onMessage("Schlüssel zurückgesetzt. Bitte neue Schlüssel einrichten.") } }) { Text("Schlüssel zurücksetzen") } }, dismissButton = { Button(onClick = { resetKeys = false }) { Text("Abbrechen") } })
 }
 @Composable fun WelcomeCard(repo: ParcelRepository, parcels: List<Parcel>, onOpen: (String) -> Unit, onChat: () -> Unit) {
     val state by repo.assistant.collectAsStateWithLifecycle()

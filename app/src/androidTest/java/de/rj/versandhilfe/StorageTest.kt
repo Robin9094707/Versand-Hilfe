@@ -80,6 +80,7 @@ class StorageTest {
     @Test fun aiProfileChatAndEncryptedKeysRestoreAfterLocalSecretsAreRemoved() = runBlocking {
         val repo = ParcelRepository(context)
         repo.load()
+        repo.resetKeys()
         repo.configureAssistant("Jessica", "sk-fake-test-key-never-sent", "backup-passwort-123", true)
         repo.addChat("Paketübersicht", ParcelAnswer("Noch keine dringenden Pakete."))
         val zip = File(context.cacheDir, "ai-backup.zip")
@@ -100,8 +101,21 @@ class StorageTest {
         assertFalse(SecretVault(context).ready(restored.assistant.value))
         restored.unlockKeys("backup-passwort-123")
         assertEquals("sk-fake-test-key-never-sent", SecretVault(context).openAi.read())
-        SecretVault(context).openAi.save("")
-        ApiKeyStore(context, "backup-password").save("")
+        restored.resetKeys()
+        Unit
+    }
+    @Test fun aiDailyQuotaAndLocalRefusalDoNotAllowUnboundedRequests() = runBlocking {
+        val repo = ParcelRepository(context)
+        repo.load(); repo.resetKeys()
+        repo.configureAssistant("Mama", "sk-fake-not-used", "anderes-backup-passwort", true)
+        repo.modifyAssistant { it.copy(dailyLimit = 5, usageDate = "", calls = 0) }
+        repeat(5) { repo.reserveAiCall() }
+        assertTrue(runCatching { repo.reserveAiCall() }.isFailure)
+        assertEquals(5, repo.assistant.value.calls)
+        val answer = ParcelAi(repo).ask("Wie ist das Wetter heute?")
+        assertEquals(ParcelFacts.refusal, answer.text)
+        assertEquals(5, repo.assistant.value.calls)
+        repo.resetKeys()
         Unit
     }
     @Test fun unsafeZipLeavesCollectionUntouched() = runBlocking {

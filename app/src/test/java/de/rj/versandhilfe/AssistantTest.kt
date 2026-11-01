@@ -35,6 +35,16 @@ class AssistantTest {
         assertEquals("16-15288-47154", out.orderNumber); assertEquals("", out.trackingNumber); assertEquals("", out.dueDate)
         assertTrue(out.attachments.first().hasKind(AttachmentKind.ADDRESS)); assertTrue(out.aiReviewRequired)
     }
+    @Test fun creationDateAndOrderNumberNeverBecomeDispatchDeadlineOrTracking() {
+        val a = Attachment(name = "label.png", mime = "image/png", file = "a".repeat(64) + ".png", sha256 = "a".repeat(64), kind = AttachmentKind.LABEL)
+        val p = Parcel(attachments = listOf(a))
+        val e = AiExtraction(kinds = listOf(AttachmentKind.LABEL), tracking = ExtractedField("16-15288-47154", "Bestellnummer 16-15288-47154"), dueDate = ExtractedField("2026-10-18", "Erstellt am 18.10.2026"))
+        val unsafe = applyExtraction(p, a, e)
+        assertEquals("", unsafe.trackingNumber); assertEquals("", unsafe.dueDate)
+        val safe = applyExtraction(p, a, e.copy(tracking = ExtractedField("00340434123456789012", "Sendungsnummer 00340434123456789012"), dueDate = ExtractedField("2026-11-03", "Versenden bis 03.11.2026")))
+        assertEquals("00340434123456789012", safe.trackingNumber); assertEquals("2026-11-03", safe.dueDate)
+        assertTrue(safe.aiReviewRequired)
+    }
     @Test fun passwordBackupIsPortableAuthenticatedAndContainsNoPlainKeys() {
         val source = SecretBundle("sk-unique-openai-secret", "tracking-unique-secret")
         val encrypted = BackupCrypto.encrypt(source, "mein-test-passwort")
@@ -75,7 +85,7 @@ class AssistantTest {
         } finally { server.shutdown() }
     }
     @Test fun profileChatAndSourceEvidenceRoundTripInArchive() {
-        val a = Archive(assistant = AssistantState(name = "Jessica", enabled = true, encryptedKeys = "ciphertext", messages = listOf(ParcelChatMessage(role = "user", text = "Paketübersicht")))))
+        val a = Archive(assistant = AssistantState(name = "Jessica", enabled = true, encryptedKeys = "ciphertext", messages = listOf(ParcelChatMessage(role = "user", text = "Paketübersicht"))))
         val p = Parcel(title = "Jeans", aiEvidence = mapOf("Frist" to "bis 03.11.2026"))
         val archive = a.copy(parcels = listOf(p))
         assertEquals(archive, AppJson.decodeFromString<Archive>(AppJson.encodeToString(archive)))

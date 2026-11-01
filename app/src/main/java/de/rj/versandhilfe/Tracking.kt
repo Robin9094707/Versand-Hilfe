@@ -42,10 +42,11 @@ class ShippingApp : Application() {
 }
 class ApiKeyStore(private val context: Context, private val namespace: String = "tracking") {
     private val prefs = context.getSharedPreferences(if (namespace == "tracking") "tracking-key" else "secret-$namespace", Context.MODE_PRIVATE)
+    private val alias = if (namespace == "tracking") "shipping-api" else "shipping-api-$namespace"
     private fun key(): SecretKey {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        return (ks.getKey("shipping-api-$namespace", null) as? SecretKey) ?: KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").run {
-            init(KeyGenParameterSpec.Builder("shipping-api-$namespace", KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+        return (ks.getKey(alias, null) as? SecretKey) ?: KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").run {
+            init(KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
             generateKey()
         }

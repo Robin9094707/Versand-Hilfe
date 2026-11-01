@@ -100,17 +100,25 @@ class ParcelRepository(val context: Context) {
     }
     suspend fun configureAssistant(name: String, apiKey: String?, password: String, enabled: Boolean) = withContext(Dispatchers.IO) {
         val vault = SecretVault(context)
+        require(_assistant.value.encryptedKeys.isBlank() || vault.unlocked(_assistant.value)) { "Bitte zuerst das vorhandene Schlüsselbackup entsperren oder ausdrücklich zurücksetzen." }
         val envelope = vault.envelope(password, openAiValue = apiKey?.trim()?.takeIf { it.isNotEmpty() })
         apiKey?.trim()?.takeIf { it.isNotBlank() }?.let { vault.openAi.save(it) }
-        vault.rememberPassword(password)
         require(!enabled || vault.openAi.hasKey()) { "Bitte einen OpenAI-Schlüssel eintragen." }
+        vault.rememberPassword(password)
+        vault.mark(envelope)
         modifyAssistant { it.copy(name = name.trim().take(80), enabled = enabled, encryptedKeys = envelope) }
     }
     suspend fun saveTrackingKey(key: String) = withContext(Dispatchers.IO) {
         val vault = SecretVault(context)
+        require(_assistant.value.encryptedKeys.isBlank() || vault.unlocked(_assistant.value)) { "Bitte zuerst das Schlüsselbackup entsperren." }
         val envelope = vault.envelope(trackingValue = key)
         vault.tracking.save(key)
+        vault.mark(envelope)
         modifyAssistant { it.copy(encryptedKeys = envelope) }
+    }
+    suspend fun resetKeys() = withContext(Dispatchers.IO) {
+        SecretVault(context).clear()
+        modifyAssistant { it.copy(enabled = false, encryptedKeys = "") }
     }
     suspend fun unlockKeys(password: String) = withContext(Dispatchers.IO) {
         SecretVault(context).unlock(_assistant.value.encryptedKeys, password)
