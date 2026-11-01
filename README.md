@@ -83,3 +83,27 @@ Ein App-Limit von standardmäßig 20 (wählbar 5/10/20/50) KI-Aufrufversuchen pr
 Die HTTP-Anbindung wird mit MockWebServer einschließlich Authentifizierungsfehlern, unvollständigen Antworten und Refusals geprüft. Ohne echten Kundenschlüssel wurde kein kostenpflichtiger Live-API-Aufruf durchgeführt. Unter eigenem Schlüssel können Modellfreigaben, Guthaben und OpenAI-Limits abweichen.
 
 Offizielle Quellen: [GPT-5.6 Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna), [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs), [Vision](https://developers.openai.com/api/docs/guides/images-vision).
+
+## Version 2.1 – erst lokal scannen, dann KI
+
+Jeder Foto-/PDF-Import liest zuerst mit dem gebündelten ML-Kit-Modell lokal QR-/Barcodes und Text. Auch ohne OpenAI-Schlüssel bleibt das nutzbar. „QR-Code mit Kamera scannen“ verwendet CameraX und denselben lokalen Decoder; nach einem Treffer wird das tatsächliche Kamerafoto gespeichert, kein neuer Versandcode erzeugt. Die Kamera wird beim Schließen freigegeben. Rohinhalte werden beim Paket gespeichert und mit Ordnersicherung/ZIP wiederhergestellt. Im aktivierten KI-Modus gehen Bild, OCR, Rohinhalte und getrennte lokale Adressrollen an OpenAI; die vier Rückfragen selbst verbrauchen keine API-Aufrufe.
+
+### Adressrollen und unterstützte Formate
+
+Der implementierte DHL-Parser unterstützt bewusst nur die beobachtete deutsche `OF|…|0|…|A|…|V2.0`-Variante mit genau 27 Feldern: 5–10 Absender, 11–16 Empfänger (nullbasierte Indizes). Name, Zusatz, Straße, PLZ, Ort und Land werden separat validiert. Diese Zuordnung basiert auf dem vom Nutzer bestätigten Beispiel; sie ist **keine öffentlich dokumentierte, universelle DHL-Spezifikation**. Im Paket wird ausschließlich die Zieladresse übernommen. Die Rohdaten können weiterhin beide Rollen enthalten. Bestehende manuelle Angaben werden bei einem Widerspruch zur Prüfung angezeigt und nicht still überschrieben. Andere OF-Versionen, ungültige Felder und verschiedene Empfänger in mehreren Codes benötigen eine menschliche Auswahl.
+
+Für Hermes, DPD, UPS, GLS, FedEx und Deutsche Post werden die lokal lesbaren Rohdaten/OCR für die Erkennung genutzt. Es wird kein universelles proprietäres Adressschema behauptet: viele mobile Labels enthalten nur eine Druck-/Retourenreferenz. `RET`-/`PAK`-IDs und unbeschriftete Zahlen-/Datumsfelder im DHL-QR werden nicht als Trackingnummer oder Abgabefrist verwendet. Tracking-Vorschläge bleiben konservativ (beschriftete Nummern, bekannte UPS-Form, Parameter offizieller Tracking-Domains). Unklare Rollen werden nicht automatisch als Zieladresse ausgefüllt. KI-Vorschläge bleiben prüfpflichtig; eine fehlerfreie Bilderkennung kann nicht garantiert werden.
+
+Nach der KI-Erkennung fragt die App in einfacher Sprache nach Inhalt, Empfänger und Lagerplatz. Zum Schluss zeigt sie die Angaben zusammen an. „Bereit zum Abgeben“ ist erst mit Paketname, Empfänger und Lagerplatz möglich; „Erst einmal anlegen“ lässt das Paket in Vorbereitung. Es wird niemals durch Bilderkennung als bereits abgegeben markiert. Anschließend wird bewusst über „Paket speichern“ gesichert.
+
+Offizielle Grundlagen (geprüft am 01.11.2026):
+
+- [DHL Mobile Paketmarke und PAK-/RET-ID](https://www.dhl.de/de/privatkunden/pakete-versenden/angebot-online-frankierung/mobile-paketmarke.html)
+- [Hermes Mobiler Paketschein](https://www.myhermes.de/versenden/mobiler-paketschein/)
+- [DPD mobiler Paketschein](https://www.dpd.com/de/de/faq/bekomme-ich-den-paketschein-in-der-app-angezeigt-oder-muss-ich-ihn-ausdrucken/)
+- [UPS mobile Barcodes und QR-Codes](https://www.ups.com/us/en/support/manage-your-profile/stay-connected)
+- [Google ML Kit: lokal gebündeltes Barcode-Modell, Rohinhalte](https://developers.google.com/ml-kit/vision/barcode-scanning/android)
+- [CameraX Bildanalyse und Ressourcenfreigabe](https://developer.android.com/media/camera/camerax/analyze)
+- [OpenAI Vision: Bilderkennung und Grenzen](https://developers.openai.com/api/docs/guides/images-vision)
+
+Tests verwenden ausschließlich erfundene Adressen und Codes. Persönliche Versandlabels und API-Schlüssel gehören nicht ins Repository.

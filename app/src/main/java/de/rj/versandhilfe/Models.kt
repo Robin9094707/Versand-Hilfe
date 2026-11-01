@@ -36,7 +36,8 @@ val AppJson = Json { ignoreUnknownKeys = true; prettyPrint = true; encodeDefault
 @Serializable data class Attachment(
     val id: String = UUID.randomUUID().toString(), val name: String, val mime: String,
     val file: String, val sha256: String, val kind: AttachmentKind,
-    val detectedKinds: List<AttachmentKind> = emptyList(), val aiAnalyzed: Boolean = false
+    val detectedKinds: List<AttachmentKind> = emptyList(), val aiAnalyzed: Boolean = false,
+    val rawCodes: List<String> = emptyList()
 ) { fun hasKind(value: AttachmentKind) = kind == value || value in detectedKinds }
 @Serializable data class ParcelEvent(
     val at: Long = System.currentTimeMillis(), val text: String, val source: String = "Manuell"
@@ -71,6 +72,7 @@ fun validateArchive(archive: Archive) {
     archive.parcels.forEach { p ->
         require(p.id.matches(Regex("[a-zA-Z0-9-]{1,80}"))) { "Ungültige Paket-ID." }
         p.attachments.forEach { a ->
+            require(a.rawCodes.size <= 20 && a.rawCodes.all { it.length <= 12000 }) { "Zu viele oder zu lange QR-Inhalte im Backup." }
             require(a.file.matches(Regex("[a-f0-9]{64}\\.(jpg|png|webp|pdf)"))) { "Ungültiger Dateipfad im Backup." }
             require(a.sha256.matches(Regex("[a-f0-9]{64}")) && a.file.startsWith(a.sha256)) { "Ungültige Dateiprüfsumme." }
         }

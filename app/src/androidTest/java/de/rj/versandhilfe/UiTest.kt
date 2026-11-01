@@ -1,6 +1,8 @@
 package de.rj.versandhilfe
 
 import androidx.compose.ui.test.*
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Rule
@@ -78,8 +80,42 @@ class UiTest {
         val parcel = Parcel(title = "Jacke", aiSummary = "Versandlabel erkannt", aiReviewRequired = true, aiEvidence = mapOf("Artikel" to "Jacke"))
         compose.setContent { VersandTheme { EditorScreen(ParcelRepository(context), parcel, {}, {}, {}) } }
         compose.onNodeWithText("Speichern").assertIsNotEnabled()
-        compose.onNode(isToggleable()).performClick()
+        compose.onNode(isToggleable()).performScrollTo().performClick()
         compose.onNodeWithText("Speichern").assertIsEnabled()
+    }
+    @Test fun guidedIntakeConfirmsRecipientLocationAndReadyWithoutNetwork() {
+        val raw = "OF|EXAMPLE12|0|Paket bis 2 kg|A|Anna Beispiel||Musterweg 1|10115|Berlin|Germany|Ben Muster||Testweg 2|20095|Hamburg|Germany||||20095156002000|123456789012|27112026||0||V2.0"
+        val a = Attachment(name = "label.png", mime = "image/png", file = "a".repeat(64) + ".png", sha256 = "a".repeat(64), kind = AttachmentKind.LABEL, rawCodes = listOf(raw), aiAnalyzed = true)
+        var result = applyLocalCodes(Parcel(title = "Jeans", attachments = listOf(a)), a, listOf(raw))
+        compose.setContent {
+            var parcel by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(result) }
+            var step by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(1) }
+            VersandTheme { if (step > 0) IntakeGuide(parcel, step, { parcel = it; result = it }, { step = it }) }
+        }
+        compose.onNodeWithText("Was ist im Paket?").assertIsDisplayed()
+        compose.onNodeWithText("Weiter").performClick()
+        compose.onNodeWithText("Für wen ist das Paket?").assertIsDisplayed()
+        compose.onNodeWithText("Empfänger / Benutzername").assertTextContains("Ben Muster")
+        compose.onNodeWithText("Weiter").performClick()
+        compose.onNodeWithText("Lagerplatz").performTextInput("Flur, linkes Regal")
+        compose.onNodeWithText("Weiter").performClick()
+        compose.onNodeWithText("Alles richtig?").assertIsDisplayed()
+        screenshot("07-geführte-erkennung")
+        compose.onNodeWithText("Bereit zum Abgeben").performClick()
+        compose.runOnIdle {
+            org.junit.Assert.assertEquals(ParcelStatus.READY, result.status)
+            org.junit.Assert.assertEquals("Ben Muster", result.recipient)
+            org.junit.Assert.assertEquals("Flur, linkes Regal", result.location)
+            org.junit.Assert.assertFalse(result.aiReviewRequired)
+        }
+    }
+    @Test fun incompleteIntakeCanStayDraftWithoutInventingMissingFields() {
+        var result = Parcel(title = "Karton", aiReviewRequired = true)
+        compose.setContent { VersandTheme { IntakeGuide(result, 4, { result = it }, {}) } }
+        compose.onNodeWithText("Bereit zum Abgeben").assertIsNotEnabled()
+        compose.onNodeWithText("Erst einmal anlegen").performClick()
+        org.junit.Assert.assertEquals(ParcelStatus.DRAFT, result.status)
+        org.junit.Assert.assertEquals("", result.recipient)
     }
     @Test fun editorCannotSaveEmptyTitle() {
         compose.setContent { VersandTheme { EditorScreen(ParcelRepository(context), Parcel(), {}, {}, {}) } }

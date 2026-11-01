@@ -97,6 +97,8 @@ suspend fun recognize(repository: ParcelRepository, attachment: Attachment): Sca
         } else InputImage.fromFilePath(repository.context, android.net.Uri.fromFile(file))
         val codes = scanner.process(image).await().mapNotNull { it.rawValue }.distinct()
         val text = recognizer.process(image).await().text
-        ScanResult(codes, text, TrackingDetector.candidates(codes, text), TrackingDetector.carrier(text + codes.joinToString(" ")))
+        val allCodes = (attachment.rawCodes + codes).distinct().filter { it.length <= 12000 }.take(20)
+        val carrier = if (ShippingCodeParser.analyze(allCodes).parsed.isNotEmpty()) Carrier.DHL else TrackingDetector.carrier(text + allCodes.joinToString(" "))
+        ScanResult(allCodes, text, TrackingDetector.candidates(allCodes, text), carrier)
     } finally { scanner.close(); recognizer.close(); bitmap?.recycle() }
 }

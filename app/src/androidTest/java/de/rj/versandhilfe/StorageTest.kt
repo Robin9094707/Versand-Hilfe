@@ -77,6 +77,29 @@ class StorageTest {
         assertTrue(scan.codes.contains(url))
         assertTrue(scan.candidates.any { it.number == "00340434123456789012" && it.carrier == Carrier.DHL })
     }
+    @Test fun screenshotQrDecodesBeforeAiAndSeparatesTheAddressRoles() = runBlocking {
+        val raw = "OF|EXAMPLE12|0|Paket bis 2 kg|A|Anna Beispiel||Musterweg 1|10115|Berlin|Germany|Ben Muster||Testweg 2|20095|Hamburg|Germany||||20095156002000|123456789012|27112026||0||V2.0"
+        val matrix = com.google.zxing.MultiFormatWriter().encode(raw, com.google.zxing.BarcodeFormat.QR_CODE, 520, 520)
+        // A QR embedded in a tall screenshot, rather than a cropped bare symbol.
+        val bitmap = android.graphics.Bitmap.createBitmap(720, 1536, android.graphics.Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(android.graphics.Color.BLACK)
+        for (y in 0 until 520) for (x in 0 until 520) bitmap.setPixel(x + 100, y + 480, if (matrix[x, y]) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+        val file = File(context.cacheDir, "of-screenshot.png")
+        file.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        bitmap.recycle()
+        val repo = ParcelRepository(context)
+        repo.load()
+        val a = repo.attach(Uri.fromFile(file), AttachmentKind.PHOTO)
+        val scan = recognize(repo, a)
+        assertTrue(scan.codes.contains(raw))
+        val p = applyLocalCodes(Parcel(attachments = listOf(a)), a, scan.codes)
+        assertEquals("Ben Muster", p.recipient)
+        assertFalse(p.address.contains("Musterweg"))
+        assertEquals("", p.trackingNumber); assertEquals("", p.dueDate)
+        assertEquals(listOf(raw), p.attachments.single().rawCodes)
+        assertEquals(Carrier.DHL, scan.suggestedCarrier)
+        Unit
+    }
     @Test fun aiProfileChatAndEncryptedKeysRestoreAfterLocalSecretsAreRemoved() = runBlocking {
         val repo = ParcelRepository(context)
         repo.load()

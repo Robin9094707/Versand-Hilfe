@@ -60,34 +60,43 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
     var viewer by remember { mutableStateOf<Attachment?>(null) }
     var discard by remember { mutableStateOf(false) }
     var dateDialog by remember { mutableStateOf(false) }
+    var guideStep by rememberSaveable { mutableIntStateOf(0) }
+    var scannerOpen by rememberSaveable { mutableStateOf(false) }
     var cameraPath by rememberSaveable { mutableStateOf("") }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     fun leave() { if (parcel != original) discard = true else onBack() }
-    fun add(uri: Uri, camera: Boolean = false) {
+    fun add(uri: Uri, camera: Boolean = false, scannedCodes: List<String> = emptyList()) {
         if (working) return
         working = true
         scope.launch {
             var attached: Attachment? = null
             try {
-                val attachment = repo.attach(uri, kind)
+                val attachment = repo.attach(uri, if (scannedCodes.isNotEmpty()) AttachmentKind.LABEL else kind)
                 attached = attachment
                 parcel = parcel.copy(attachments = parcel.attachments + attachment)
+                // Always decode locally first, including package photos and offline imports.
+                val local = runCatching { recognize(repo, attachment) }.getOrElse { ScanResult(emptyList(), "", emptyList(), Carrier.UNKNOWN) }
+                val result = local.copy(codes = (scannedCodes + local.codes).distinct().take(20))
+                parcel = applyLocalCodes(parcel, attachment, result.codes)
+                val stored = parcel.attachments.first { it.id == attachment.id }
                 if (kindName == "AUTO" && aiReady) {
-                    val extraction = ParcelAi(repo).analyze(attachment)
-                    parcel = applyExtraction(parcel, attachment, extraction)
-                    onMessage("KI-Angaben übernommen. Bitte prüfen und anschließend speichern.")
-                } else if (kind in listOf(AttachmentKind.LABEL, AttachmentKind.ADDRESS)) {
-                    val result = recognize(repo, attachment)
-                    if (parcel.carrier == Carrier.UNKNOWN && result.suggestedCarrier != Carrier.UNKNOWN) parcel = parcel.copy(carrier = result.suggestedCarrier)
+                    val extraction = ParcelAi(repo).analyze(stored, result)
+                    parcel = applyExtraction(parcel, stored, extraction)
+                    guideStep = 1
+                    onMessage("Erkannt. Wir gehen die Angaben kurz zusammen durch.")
+                } else if (result.codes.isNotEmpty() || kind in listOf(AttachmentKind.LABEL, AttachmentKind.ADDRESS)) {
                     scan = result
                 }
                 if (camera) File(cameraPath).delete()
             } catch (e: Exception) {
                 onMessage(e.message ?: "Anhang konnte nicht gelesen werden")
                 attached?.let { a -> scan = runCatching { recognize(repo, a) }.getOrNull() }
-            } finally { working = false }
+            } finally { working = false; if (camera) File(cameraPath).delete() }
         }
+    }
+    val scannerPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) scannerOpen = true else onMessage("Zum Scannen braucht die App die Kamera. Du kannst auch ein Foto auswählen.")
     }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) add(uri) }
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
@@ -95,9 +104,14 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
     }
     LaunchedEffect(original.id) {
         val pending = parcel.attachments.filter { !it.aiAnalyzed }
-        if (aiReady && pending.isNotEmpty()) {
+        if (pending.isNotEmpty()) {
             working = true
-            try { pending.forEach { a -> parcel = applyExtraction(parcel, a, ParcelAi(repo).analyze(a)) } }
+            try { pending.forEach { a ->
+                val local = runCatching { recognize(repo, a) }.getOrElse { ScanResult(a.rawCodes, "", emptyList(), Carrier.UNKNOWN) }
+                parcel = applyLocalCodes(parcel, a, local.codes)
+                val stored = parcel.attachments.first { it.id == a.id }
+                if (aiReady) parcel = applyExtraction(parcel, stored, ParcelAi(repo).analyze(stored, local))
+            }; if (aiReady || parcel.attachments.any { it.rawCodes.isNotEmpty() }) guideStep = 1 }
             catch (e: Exception) { onMessage(e.message ?: "Automatische Erkennung nicht verfügbar. Angaben bleiben manuell bearbeitbar.") }
             finally { working = false }
         }
@@ -114,7 +128,12 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
         LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             item { InfoCard(Icons.Outlined.Inventory2, "${parcel.code} · Deine Paketnummer", "Schreib diese Nummer auf den Karton. So gehören Foto und Label immer eindeutig zusammen.", MaterialTheme.colorScheme.primaryContainer) }
             if (aiReady) item { FilledTonalButton(onClick = { kindName = "AUTO"; picker.launch(arrayOf("image/jpeg", "image/png", "image/webp", "application/pdf")) }, enabled = !working, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Icon(Icons.Outlined.AutoAwesome, null); Spacer(Modifier.width(10.dp)); Text("Foto / Screenshot automatisch ausfüllen") } }
+            item { OutlinedButton(onClick = {
+                if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) scannerOpen = true
+                else scannerPermission.launch(android.Manifest.permission.CAMERA)
+            }, enabled = !working, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Icon(Icons.Outlined.QrCodeScanner, null); Spacer(Modifier.width(10.dp)); Text("QR-Code mit Kamera scannen") } }
             if (parcel.aiReviewRequired || parcel.aiSummary.isNotBlank() || parcel.aiEvidence.isNotEmpty()) item { AiReviewCard(parcel) { parcel = parcel.copy(aiReviewRequired = false) } }
+            if (aiReady || parcel.attachments.any { it.rawCodes.isNotEmpty() }) item { TextButton(onClick = { guideStep = 1 }, enabled = !working) { Text("Angaben Schritt für Schritt prüfen") } }
             item { SectionTitle("Was geht auf die Reise?", "Ein guter Name hilft beim Wiederfinden.") }
             item { EditField("Artikel / Paketname *", parcel.title, { parcel = parcel.copy(title = it) }, placeholder = "Zum Beispiel: Blaue Jeans · Größe 40") }
             item { ChoiceField("Verkaufsplattform", parcel.platform, listOf("Vinted", "Kleinanzeigen", "eBay", "Facebook", "Privat", "Andere")) { parcel = parcel.copy(platform = it) } }
@@ -137,7 +156,9 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
             items(parcel.attachments, key = { it.id }) { a ->
                 AttachmentRow(repo, a, onOpen = { viewer = a }, onScan = {
                     if (!working) { working = true; scope.launch { try {
-                        scan = recognize(repo, a)
+                        val result = recognize(repo, a)
+                        parcel = applyLocalCodes(parcel, a, result.codes)
+                        scan = result
                     } catch (e: Exception) { onMessage("Erkennung fehlgeschlagen: ${e.message}") } finally { working = false } } }
                 }, onRemove = { parcel = parcel.copy(attachments = parcel.attachments.filterNot { it.id == a.id }) })
             }
@@ -166,8 +187,18 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
         val dateState = rememberDatePickerState(initialSelectedDateMillis = runCatching { LocalDate.parse(parcel.dueDate).atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli() }.getOrNull())
         DatePickerDialog(onDismissRequest = { dateDialog = false }, confirmButton = { TextButton(onClick = { dateState.selectedDateMillis?.let { parcel = parcel.copy(dueDate = Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate().toString()) }; dateDialog = false }) { Text("Übernehmen") } }, dismissButton = { TextButton(onClick = { dateDialog = false }) { Text("Abbrechen") } }) { DatePicker(dateState) }
     }
-    scan?.let { result -> ScanDialog(result, onDismiss = { scan = null }, onCandidate = { c -> parcel = parcel.copy(trackingNumber = c.number, carrier = if (c.carrier == Carrier.UNKNOWN) parcel.carrier else c.carrier); scan = null },
+    scan?.let { result -> ScanDialog(result, onDismiss = { scan = null }, onRecipient = { recipient ->
+        parcel = parcel.copy(recipient = recipient.name, address = recipient.address, carrier = Carrier.DHL, aiReviewRequired = true)
+        scan = null; guideStep = 1
+    }, onCandidate = { c -> parcel = parcel.copy(trackingNumber = c.number, carrier = if (c.carrier == Carrier.UNKNOWN) parcel.carrier else c.carrier); scan = null },
         onText = { asAddress -> parcel = if (asAddress) parcel.copy(address = result.text) else parcel.copy(notes = listOf(parcel.notes, result.text).filter { it.isNotBlank() }.joinToString("\n\n")); scan = null }) }
+    if (guideStep > 0 && !working) IntakeGuide(parcel, guideStep, { parcel = it }, { guideStep = it })
+    if (scannerOpen) LiveScanner(onDismiss = { scannerOpen = false }, onCaptured = { uri, codes, file ->
+        scannerOpen = false
+        cameraPath = file.path
+        kindName = if (aiReady) "AUTO" else AttachmentKind.LABEL.name
+        add(uri, true, codes)
+    })
     viewer?.let { a -> AttachmentViewer(repo, a) { viewer = null } }
 }
 @Composable fun SectionTitle(title: String, subtitle: String) { Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
@@ -185,10 +216,19 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
         }
     }
 }
-@Composable fun ScanDialog(result: ScanResult, onDismiss: () -> Unit, onCandidate: (TrackingCandidate) -> Unit, onText: (Boolean) -> Unit) {
+@Composable fun ScanDialog(result: ScanResult, onDismiss: () -> Unit, onCandidate: (TrackingCandidate) -> Unit, onRecipient: (ShippingAddress) -> Unit, onText: (Boolean) -> Unit) {
     val context = LocalContext.current
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Erkennung prüfen") }, icon = { Icon(Icons.Outlined.DocumentScanner, null) }, text = {
         Column(Modifier.heightIn(max = 450.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            val analysis = ShippingCodeParser.analyze(result.codes)
+            analysis.recipients.forEach { recipient ->
+                OutlinedCard(onClick = { onRecipient(recipient) }) { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Empfänger aus dem QR-Code", fontWeight = FontWeight.Bold); Text(recipient.name); Text(recipient.address)
+                    Text("Empfänger übernehmen", color = MaterialTheme.colorScheme.primary)
+                } }
+            }
+            if (analysis.parsed.isNotEmpty()) Text("Der Absender im ersten Adressblock wird nicht als Empfänger übernommen.")
+            if (analysis.needsChoice) Text("Adresszuordnung unklar. Bitte den richtigen Empfänger selbst bestätigen.", color = MaterialTheme.colorScheme.error)
             Text("Versand-QR-Codes können nur zum Erstellen eines Labels dienen. Übernimm eine Nummer erst nach dem Abgleich mit der Sendungsnummer.")
             if (result.suggestedCarrier != Carrier.UNKNOWN) Text("Anbieterhinweis: ${result.suggestedCarrier.label}", fontWeight = FontWeight.Bold)
             if (result.candidates.isEmpty()) Text("Keine eindeutige Sendungsnummer erkannt. Den ursprünglichen QR-Code kannst du im Paketshop trotzdem anzeigen.")
@@ -197,7 +237,6 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
             if (result.text.isNotBlank()) {
                 Text("Gelesener Text", fontWeight = FontWeight.Bold)
                 SelectionContainer { Text(result.text.take(12000), style = MaterialTheme.typography.bodySmall) }
-                TextButton(onClick = { onText(true) }) { Text("Text als Adresse übernehmen") }
                 TextButton(onClick = { onText(false) }) { Text("Text an Notizen anhängen") }
                 TextButton(onClick = { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Erkannter Text", result.text)) }) { Text("Text kopieren") }
             }

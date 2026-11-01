@@ -18,12 +18,16 @@ const val AI_MODEL = "gpt-5.6-luna"
     val parcelIds: List<String> = emptyList(), val at: Long = System.currentTimeMillis()
 )
 @Serializable data class ExtractedField(val value: String, val evidence: String)
+@Serializable enum class AddressRole { EXPLICIT_RECIPIENT, UNCERTAIN }
 @Serializable data class AiExtraction(
     val kinds: List<AttachmentKind> = emptyList(), val title: ExtractedField? = null,
     val recipient: ExtractedField? = null, val address: ExtractedField? = null,
     val platform: ExtractedField? = null, val carrier: ExtractedField? = null,
     val tracking: ExtractedField? = null, val orderNumber: ExtractedField? = null,
-    val dueDate: ExtractedField? = null, val summary: String = "", val warning: String = ""
+    val dueDate: ExtractedField? = null, val summary: String = "", val warning: String = "",
+    val recipientRole: AddressRole = AddressRole.UNCERTAIN, val senderName: ExtractedField? = null,
+    val senderAddress: ExtractedField? = null, val localCodes: List<String> = emptyList(),
+    val localText: String = "", val sourceScanned: Boolean = false
 )
 @Serializable enum class ParcelIntent { SUMMARY, DUE, OVERDUE, READY, IN_TRANSIT, DELIVERED, FIND, HELP, REFUSE }
 @Serializable data class ParcelQuery(val intent: ParcelIntent, val search: String = "", val days: Int = 3, val helpTopic: String = "")
@@ -90,7 +94,9 @@ object ParcelChatPolicy {
 fun applyExtraction(p: Parcel, attachment: Attachment, e: AiExtraction): Parcel {
     val kinds = e.kinds.distinct().ifEmpty { listOf(attachment.kind) }
     val primary = listOf(AttachmentKind.LABEL, AttachmentKind.ADDRESS, AttachmentKind.RECEIPT, AttachmentKind.PHOTO).first { it in kinds }
-    val mapped = attachment.copy(kind = primary, detectedKinds = kinds, aiAnalyzed = true)
+    val raw = (attachment.rawCodes + e.localCodes).distinct().filter { it.length <= 12000 }.take(20)
+    val mapped = attachment.copy(kind = primary, detectedKinds = kinds, aiAnalyzed = true, rawCodes = raw)
+    val codes = ShippingCodeParser.analyze(raw)
     val evidence = linkedMapOf<String, String>()
     fun value(name: String, field: ExtractedField?, current: String): String {
         if (field == null || field.value.isBlank() || field.evidence.isBlank()) return current
@@ -98,11 +104,27 @@ fun applyExtraction(p: Parcel, attachment: Attachment, e: AiExtraction): Parcel 
         return current.ifBlank { field.value.take(4000) }
     }
     val title = value("Artikel", e.title, p.title)
-    val recipient = value("Empfänger", e.recipient, p.recipient)
-    val address = value("Adresse", e.address, p.address)
+    val known = codes.recipient
+    val senderName = e.senderName?.value.orEmpty()
+    val senderAddress = e.senderAddress?.value.orEmpty()
+    val nameIsSender = e.recipient?.value?.let { proposed -> ShippingCodeParser.same(proposed, senderName) || codes.parsed.any { ShippingCodeParser.same(proposed, it.sender.name) } } == true
+    val addressIsSender = e.address?.value?.let { proposed -> ShippingCodeParser.same(proposed, senderAddress) || codes.parsed.any { ShippingCodeParser.containsAddress(proposed, it.sender) } } == true
+    fun grounded(field: ExtractedField?): Boolean {
+        if (!e.sourceScanned) return true
+        val quote = field?.evidence.orEmpty().lowercase().filter(Char::isLetterOrDigit)
+        val source = e.localText.lowercase().filter(Char::isLetterOrDigit)
+        return quote.length >= 3 && source.contains(quote)
+    }
+    val roleConfirmed = e.recipientRole == AddressRole.EXPLICIT_RECIPIENT && !codes.needsChoice
+    val recipientField = known?.let { ExtractedField(it.name, "Lokaler QR: zweiter Adressblock, Empfänger") } ?: e.recipient.takeIf { roleConfirmed && !nameIsSender && grounded(it) }
+    val addressField = known?.let { ExtractedField(it.address, "Lokaler QR: zweiter Adressblock, Empfänger") } ?: e.address.takeIf { roleConfirmed && !addressIsSender && !nameIsSender && grounded(it) }
+    val recipient = value("Empfänger", recipientField, p.recipient)
+    val address = value("Adresse", addressField, p.address)
     val platform = value("Plattform", e.platform, if (p.platform == "Vinted" && p.title.isBlank()) "" else p.platform).ifBlank { p.platform }
     val order = value("Bestellnummer", e.orderNumber, p.orderNumber)
     val candidateTracking = e.tracking?.takeIf { field ->
+        !field.value.startsWith("RET", true) && !field.value.startsWith("PAK", true) &&
+        (!e.sourceScanned || TrackingDetector.candidates(emptyList(), e.localText).any { it.number.equals(field.value.replace(" ", ""), true) }) &&
         !field.value.matches(Regex("\\d{2}-\\d{5}-\\d{5}")) &&
             field.value.replace(" ", "").matches(Regex("[A-Za-z0-9]{8,35}")) &&
             Regex("sendung|tracking|paketnummer|shipment|awb|waybill", RegexOption.IGNORE_CASE).containsMatchIn(field.evidence)
@@ -110,16 +132,17 @@ fun applyExtraction(p: Parcel, attachment: Attachment, e: AiExtraction): Parcel 
     val tracking = value("Sendungsnummer", candidateTracking, p.trackingNumber)
     val dueRaw = e.dueDate?.value.orEmpty()
     val dateEvidence = e.dueDate?.evidence.orEmpty()
-    val validDate = dueRaw.isNotBlank() && runCatching { LocalDate.parse(dueRaw) }.isSuccess &&
+    val validDate = grounded(e.dueDate) && dueRaw.isNotBlank() && runCatching { LocalDate.parse(dueRaw) }.isSuccess &&
         Regex("20[0-9]{2}").containsMatchIn(dateEvidence) &&
         Regex("abgab|versend|verschick|frist|send by|ship by|bis|deadline", RegexOption.IGNORE_CASE).containsMatchIn(dateEvidence) &&
         !Regex("erstellt|created|bestellt|ordered", RegexOption.IGNORE_CASE).containsMatchIn(dateEvidence)
     val due = value("Abgabefrist", if (validDate) e.dueDate else null, p.dueDate)
     val carrierName = value("Anbieter", e.carrier, "")
     val carrier = Carrier.entries.firstOrNull { it.name.equals(carrierName, true) || it.label.equals(carrierName, true) } ?: Carrier.UNKNOWN
-    val summary = listOf(e.summary, e.warning).filter { it.isNotBlank() }.joinToString("\n").take(2000)
-    return p.copy(title = title, recipient = recipient, address = address, platform = platform, orderNumber = order,
+    val roleWarning = if ((e.recipient != null || e.address != null) && known == null && (!roleConfirmed || nameIsSender || addressIsSender)) "Empfänger nicht sicher erkannt. Bitte selbst bestätigen. Die Absenderadresse wurde nicht übernommen." else ""
+    val summary = listOf(e.summary, e.warning, roleWarning).filter { it.isNotBlank() }.joinToString("\n").take(2000)
+    return applyLocalCodes(p.copy(title = title, recipient = recipient, address = address, platform = platform, orderNumber = order,
         trackingNumber = tracking, dueDate = due, carrier = if (p.carrier == Carrier.UNKNOWN) carrier else p.carrier,
         attachments = p.attachments.map { if (it.id == attachment.id) mapped else it },
-        aiSummary = summary, aiEvidence = p.aiEvidence + evidence, aiReviewRequired = true)
+        aiSummary = summary, aiEvidence = p.aiEvidence + evidence, aiReviewRequired = true), mapped, raw)
 }
