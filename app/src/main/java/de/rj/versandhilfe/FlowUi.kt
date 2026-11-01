@@ -3,6 +3,9 @@ package de.rj.versandhilfe
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -46,7 +49,18 @@ data class VaultAccess(val ready: Boolean = false, val unlocked: Boolean = false
     }
 }
 @Composable fun FlowWindow(title: String, subtitle: String, progress: Float? = null, bottom: @Composable () -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
+    val dark = isSystemInDarkTheme()
     Dialog(onDismissRequest = {}, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = false, dismissOnClickOutside = false, decorFitsSystemWindows = false)) {
+        val view = LocalView.current
+        DisposableEffect(view, dark) {
+            (view.parent as? DialogWindowProvider)?.window?.let { window ->
+                androidx.core.view.WindowCompat.getInsetsController(window, view).apply {
+                    isAppearanceLightStatusBars = !dark
+                    isAppearanceLightNavigationBars = !dark
+                }
+            }
+            onDispose { }
+        }
         BackHandler { }
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
             Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding()) {
