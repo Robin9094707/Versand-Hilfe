@@ -38,7 +38,7 @@ class UiTest {
         compose.onNodeWithText("Blaue Jeans").assertDoesNotExist()
     }
     @Test fun realAppCanOpenAndEditSavedParcel() {
-        val repo = ParcelRepository(context)
+        val repo = (context.applicationContext as ShippingApp).repository
         kotlinx.coroutines.runBlocking {
             repo.load()
             repo.parcels.value.forEach { repo.delete(it.id) }
@@ -50,7 +50,7 @@ class UiTest {
             repo.save(Parcel(number = 1, title = "Blaue Jeans", recipient = "Anna", location = "Flur · Regal links", carrier = Carrier.DHL, status = ParcelStatus.READY))
             repo.save(Parcel(number = 2, title = "Lieblingsjacke", recipient = "Sophie", carrier = Carrier.HERMES, status = ParcelStatus.SHIPPED))
         }
-        compose.setContent { VersandTheme { VersandApp(repo, emptyList(), null, {}, {}) } }
+        val scenario = androidx.test.core.app.ActivityScenario.launch<MainActivity>(android.content.Intent(context, MainActivity::class.java))
         compose.onNodeWithText("Dein Versand").assertIsDisplayed()
         screenshot("04-app-uebersicht")
         compose.onNodeWithText("Blaue Jeans").performScrollTo().performClick()
@@ -58,6 +58,7 @@ class UiTest {
         screenshot("05-paketdetails")
         compose.onNodeWithContentDescription("Bearbeiten").performClick()
         compose.onNodeWithText("Paket bearbeiten").assertIsDisplayed()
+        scenario.close()
         repo.prefs.edit().remove("folder").remove("folderName").commit()
     }
     @Test fun editorCannotSaveEmptyTitle() {
