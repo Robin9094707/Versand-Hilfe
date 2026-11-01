@@ -12,8 +12,6 @@ concurrency:
   cancel-in-progress: true
 jobs:
   build:
-    env:
-      VERSANDHILFE_DEBUG_KEYSTORE: ${{ runner.temp }}/versandhilfe-debug.keystore
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -30,6 +28,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
+      - name: Set test signing path
+        run: echo "VERSANDHILFE_DEBUG_KEYSTORE=$RUNNER_TEMP/versandhilfe-debug.keystore" >> "$GITHUB_ENV"
       - name: Restore consistent test signing key
         uses: actions/cache@v4
         with:
