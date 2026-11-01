@@ -52,6 +52,7 @@ class UiTest {
             repo.useFolder(repo.inspect(tree), false)
             repo.resetKeys()
             repo.configureAssistant("Jessica", "sk-fake-ui-key", "ui-test-backup-passwort", true)
+            repo.modifyAssistant { it.copy(messages = emptyList(), calls = 0, usageDate = java.time.LocalDate.now().toString(), inputTokens = 0, outputTokens = 0) }
             repo.save(Parcel(number = 1, title = "Blaue Jeans", recipient = "Anna", location = "Flur · Regal links", carrier = Carrier.DHL, status = ParcelStatus.READY))
             repo.save(Parcel(number = 2, title = "Lieblingsjacke", recipient = "Sophie", carrier = Carrier.HERMES, status = ParcelStatus.SHIPPED))
         }
@@ -59,10 +60,12 @@ class UiTest {
         compose.onNodeWithText("Dein Versand").assertIsDisplayed()
         screenshot("04-app-uebersicht")
         compose.onNodeWithText("Pakethelfer").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Dein Versand").fetchSemanticsNodes().isEmpty() && compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().size == 1 }
         compose.onNode(hasSetTextAction()).performTextInput("Wie ist das Wetter heute?")
         compose.onNodeWithContentDescription("Frage senden").performClick()
         compose.waitUntil(10000) { repo.assistant.value.messages.any { it.text == ParcelFacts.refusal } }
-        compose.onNodeWithText(ParcelFacts.refusal).performScrollTo().assertIsDisplayed()
+        compose.onNode(hasScrollToIndexAction() and SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange)).performScrollToNode(hasText(ParcelFacts.refusal))
+        compose.onNodeWithText(ParcelFacts.refusal).assertIsDisplayed()
         org.junit.Assert.assertEquals(0, repo.assistant.value.calls)
         screenshot("06-pakethelfer")
         compose.onNodeWithText("Pakete").performClick()
