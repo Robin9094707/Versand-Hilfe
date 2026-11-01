@@ -21,6 +21,7 @@ import kotlinx.coroutines.launch
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    val notifyPermission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
     Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Eyebrow("Willkommen bei Versandhilfe")
         ParcelArt(Modifier.fillMaxWidth().height(140.dp))
@@ -37,6 +38,7 @@ import kotlinx.coroutines.launch
         }
         if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error)
         Button(onClick = {
+            if (android.os.Build.VERSION.SDK_INT >= 33 && androidx.core.content.ContextCompat.checkSelfPermission(repo.context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) notifyPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
             busy = true
             scope.launch {
                 try {
@@ -66,7 +68,10 @@ import kotlinx.coroutines.launch
         if (android.os.Build.VERSION.SDK_INT >= 34) ActionRow(androidx.compose.material.icons.Icons.Outlined.Fullscreen, "Vollbild-Erinnerungen erlauben", "Ohne Freigabe erscheint ein großer Benachrichtigungshinweis", { scheduler.requestFullScreen() })
         Text("Alarm ausprobieren", style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(10, 20).forEach { seconds ->
-            OutlinedButton(onClick = { scheduler.test(seconds); onMessage(if (scheduler.exactAllowed()) "Testalarm in $seconds Sekunden. Du kannst die App jetzt schließen." else "Test geplant. Für genau $seconds Sekunden bitte zuerst pünktliche Alarme erlauben.") }, modifier = Modifier.weight(1f)) { Text("In $seconds Sek.") }
+            OutlinedButton(onClick = {
+                if (android.os.Build.VERSION.SDK_INT >= 33 && androidx.core.content.ContextCompat.checkSelfPermission(repo.context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    onNotification(); onMessage("Bitte Benachrichtigungen erlauben und danach den Test noch einmal starten.")
+                } else { scheduler.test(seconds); onMessage(if (scheduler.exactAllowed()) "Testalarm in $seconds Sekunden. Du kannst die App jetzt schließen." else "Test geplant. Für genau $seconds Sekunden bitte zuerst pünktliche Alarme erlauben.") } }, modifier = Modifier.weight(1f)) { Text("In $seconds Sek.") }
         } }
     }
 }
