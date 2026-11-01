@@ -85,6 +85,32 @@ suspend fun renderPage(file: File, index: Int = 0): Pair<Bitmap, Int> = withCont
         }
     }
 }
+/** Preserve the original asset; limit only the working bitmap to avoid large camera-photo allocations. */
+fun boundedPhoto(file: File, maxSide: Int = 2400): Bitmap {
+    if (android.os.Build.VERSION.SDK_INT >= 28) return android.graphics.ImageDecoder.decodeBitmap(android.graphics.ImageDecoder.createSource(file)) { decoder, info, _ ->
+        val scale = (maxSide.toFloat() / maxOf(info.size.width, info.size.height)).coerceAtMost(1f)
+        decoder.setTargetSize((info.size.width * scale).toInt().coerceAtLeast(1), (info.size.height * scale).toInt().coerceAtLeast(1))
+        decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+    }
+    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    android.graphics.BitmapFactory.decodeFile(file.path, bounds)
+    var sample = 1
+    while (maxOf(bounds.outWidth, bounds.outHeight) / sample > maxSide) sample *= 2
+    val decoded = android.graphics.BitmapFactory.decodeFile(file.path, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }) ?: error("Bild konnte nicht gelesen werden.")
+    val orientation = runCatching { android.media.ExifInterface(file).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1) }.getOrDefault(1)
+    val matrix = android.graphics.Matrix()
+    when (orientation) {
+        2 -> matrix.setScale(-1f, 1f)
+        3 -> matrix.setRotate(180f)
+        4 -> matrix.setScale(1f, -1f)
+        5 -> { matrix.setRotate(90f); matrix.postScale(-1f, 1f) }
+        6 -> matrix.setRotate(90f)
+        7 -> { matrix.setRotate(-90f); matrix.postScale(-1f, 1f) }
+        8 -> matrix.setRotate(-90f)
+    }
+    if (orientation !in 2..8) return decoded
+    return Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true).also { if (it !== decoded) decoded.recycle() }
+}
 suspend fun recognize(repository: ParcelRepository, attachment: Attachment): ScanResult = withContext(Dispatchers.IO) {
     val file = File(repository.assets, attachment.file)
     val scanner = BarcodeScanning.getClient()
@@ -94,7 +120,10 @@ suspend fun recognize(repository: ParcelRepository, attachment: Attachment): Sca
         val image = if (attachment.mime == "application/pdf") {
             bitmap = renderPage(file).first
             InputImage.fromBitmap(bitmap!!, 0)
-        } else InputImage.fromFilePath(repository.context, android.net.Uri.fromFile(file))
+        } else {
+            bitmap = boundedPhoto(file)
+            InputImage.fromBitmap(bitmap!!, 0)
+        }
         val decoded = scanner.process(image).await()
         val codes = decoded.mapNotNull { it.rawValue }.distinct()
         val qrCodes = (attachment.qrCodes + decoded.filter { it.format == com.google.mlkit.vision.barcode.common.Barcode.FORMAT_QR_CODE }.mapNotNull { it.rawValue }).distinct().filter { it.length <= 12000 }.take(20)

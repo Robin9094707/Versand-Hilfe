@@ -40,6 +40,25 @@ class WorkflowTest {
         } finally { scanner.close(); rendered.first.recycle() }
         Unit
     }
+    @Test fun largeCameraImagesAreBoundedBeforeLocalRecognition() = runBlocking {
+        val raw = "HIGH-RESOLUTION-QR-TEST"
+        val bits = com.google.zxing.MultiFormatWriter().encode(raw, com.google.zxing.BarcodeFormat.QR_CODE, 1200, 1200)
+        val qr = android.graphics.Bitmap.createBitmap(1200, 1200, android.graphics.Bitmap.Config.ARGB_8888)
+        val pixels = IntArray(1200 * 1200) { i -> if (bits[i % 1200, i / 1200]) android.graphics.Color.BLACK else android.graphics.Color.WHITE }
+        qr.setPixels(pixels, 0, 1200, 0, 0, 1200, 1200)
+        val photo = android.graphics.Bitmap.createBitmap(3000, 5000, android.graphics.Bitmap.Config.ARGB_8888)
+        photo.eraseColor(android.graphics.Color.WHITE)
+        android.graphics.Canvas(photo).drawBitmap(qr, 900f, 1800f, null)
+        val file = File(context.cacheDir, "large-photo-test.jpg")
+        file.outputStream().use { photo.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it) }
+        photo.recycle(); qr.recycle()
+        val bounded = boundedPhoto(file)
+        assertTrue(maxOf(bounded.width, bounded.height) <= 2400); bounded.recycle()
+        val repo = ParcelRepository(context); repo.load()
+        val a = repo.attach(Uri.fromFile(file), AttachmentKind.PHOTO)
+        assertTrue(recognize(repo, a).qrCodes.contains(raw))
+        Unit
+    }
     @Test fun quotaSupportsTwoHundredAndUnlimitedWithoutNetwork() = runBlocking {
         val repo = ParcelRepository(context); repo.load(); repo.resetKeys()
         repo.configureAssistant("Test", "sk-fake-never-sent-key", "test-password-123", true)
