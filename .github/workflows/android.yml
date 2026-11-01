@@ -85,11 +85,23 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: ./gradlew connectedDebugAndroidTest
+          script: |
+            ./gradlew connectedDebugAndroidTest assembleRelease
+            adb logcat -b crash -c
+            adb install -r app/build/outputs/apk/release/app-release.apk
+            adb shell am force-stop de.rj.versandhilfe
+            adb shell am start -W -n de.rj.versandhilfe/.MainActivity
+            sleep 3
+            adb logcat -b crash -d > release-startup.log
+            if grep -q 'FATAL EXCEPTION' release-startup.log; then cat release-startup.log; exit 1; fi
+            adb shell screencap -p /sdcard/release-home.png
+            adb pull /sdcard/release-home.png release-home.png
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: Android-Geraetetests
           path: |
+            release-startup.log
+            release-home.png
             app/build/reports/androidTests/
             app/build/outputs/connected_android_test_additional_output/

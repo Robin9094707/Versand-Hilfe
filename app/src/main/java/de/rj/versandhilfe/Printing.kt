@@ -31,7 +31,8 @@ object ParcelPdf {
     }
     fun labels(file: File, cards: List<QrPrintCard>, perPage: Int = 4) {
         require(cards.isNotEmpty() && perPage in listOf(1, 4))
-        PdfDocument().use { document ->
+        val document = PdfDocument()
+        try {
             cards.chunked(perPage).forEachIndexed { pageIndex, group ->
                 val page = document.startPage(PdfDocument.PageInfo.Builder(595, 842, pageIndex + 1).create())
                 val canvas = page.canvas
@@ -59,10 +60,11 @@ object ParcelPdf {
                 document.finishPage(page)
             }
             file.parentFile?.mkdirs(); file.outputStream().use { document.writeTo(it) }
-        }
+        } finally { document.close() }
     }
     fun history(file: File, p: Parcel) {
-        PdfDocument().use { document ->
+        val document = PdfDocument()
+        try {
             val lines = listOf("${p.code} · ${p.title}", "Eigene Versandübersicht", "Kein Einlieferungsbeleg des Versanddienstleisters.", "Für: ${p.recipient}") + p.address.lines() + listOf("Anbieter: ${p.carrier.label}", "Sendungsnummer: ${p.trackingNumber.ifBlank { "nicht hinterlegt" }}", "Erfasst: ${readableTime(p.createdAt)}", "Status: ${p.status.label}", "Verlauf:") + p.events.sortedBy { it.at }.map { "${readableTime(it.at)} · ${it.text}" }
             lines.chunked(44).forEachIndexed { index, section ->
                 val page = document.startPage(PdfDocument.PageInfo.Builder(595, 842, index + 1).create())
@@ -70,7 +72,7 @@ object ParcelPdf {
                 document.finishPage(page)
             }
             file.parentFile?.mkdirs(); file.outputStream().use { document.writeTo(it) }
-        }
+        } finally { document.close() }
     }
 }
 fun printPdf(context: Context, file: File, name: String) {
@@ -80,8 +82,15 @@ fun printPdf(context: Context, file: File, name: String) {
         }
         override fun onWrite(pages: Array<out PageRange>, destination: ParcelFileDescriptor, cancellationSignal: CancellationSignal, callback: WriteResultCallback) {
             if (cancellationSignal.isCanceled) { callback.onWriteCancelled(); return }
-            try { ParcelFileDescriptor.AutoCloseOutputStream(destination).use { out -> file.inputStream().use { it.copyTo(out) } }; callback.onWriteFinished(arrayOf(PageRange.ALL_PAGES)) }
-            catch (_: Exception) { callback.onWriteFailed("PDF konnte nicht gedruckt werden") }
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO).launch {
+                try {
+                    ParcelFileDescriptor.AutoCloseOutputStream(destination).use { out -> file.inputStream().use { source ->
+                        val buffer = ByteArray(16384)
+                        while (!cancellationSignal.isCanceled) { val count = source.read(buffer); if (count < 0) break; out.write(buffer, 0, count) }
+                    } }
+                    if (cancellationSignal.isCanceled) callback.onWriteCancelled() else callback.onWriteFinished(arrayOf(PageRange.ALL_PAGES))
+                } catch (_: Exception) { callback.onWriteFailed("PDF konnte nicht gedruckt werden") }
+            }
         }
     }, PrintAttributes.Builder().setMediaSize(PrintAttributes.MediaSize.ISO_A4).setColorMode(PrintAttributes.COLOR_MODE_MONOCHROME).build())
 }

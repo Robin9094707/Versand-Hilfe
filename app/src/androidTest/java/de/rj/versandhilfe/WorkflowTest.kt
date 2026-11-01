@@ -27,7 +27,7 @@ class WorkflowTest {
         Unit
     }
     @Test fun fourQrCardsFitOnOneA4PdfAndRemainReadable() = runBlocking {
-        val codes = (1..4).map { "QR-PRINT-TEST-$it" }
+        val codes = listOf("OF|EXAMPLE12|0|Paket bis 2 kg|A|Änne Beispiel||Musterstraße 1|10115|Berlin|Germany|Ben Muster||Testweg 2|20095|Hamburg|Germany||||20095156002000|123456789012|27112026||0||V2.0") + (2..4).map { "QR-PRINT-TEST-$it" }
         val cards = codes.mapIndexed { index, code -> QrPrintCard(Parcel(title = "Testpaket $index", number = index + 1, numberDigits = 2, recipient = "Ben Muster"), code) }
         val file = File(context.cacheDir, "four-cards-test.pdf")
         ParcelPdf.labels(file, cards, 4)
