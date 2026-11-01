@@ -107,3 +107,5 @@ Offizielle Grundlagen (geprüft am 01.11.2026):
 - [OpenAI Vision: Bilderkennung und Grenzen](https://developers.openai.com/api/docs/guides/images-vision)
 
 Tests verwenden ausschließlich erfundene Adressen und Codes. Persönliche Versandlabels und API-Schlüssel gehören nicht ins Repository.
+
+Weitere geprüfte Anbieterhinweise: [GLS mobiler Paketschein](https://www.gls-pakete.de/en/faqs/en/category/parcel-shipping/where-can-i-hand-over-my-parcel) und [FedEx QR-Retouren](https://www.fedex.com/en-us/customer-support/faqs/returning/returns/use-qr-code-return.html). Der Decoder unterstützt die von ML Kit dokumentierten Formate (u.a. QR, Data Matrix, PDF417, Aztec, Code 128). Dies ist keine Zusage für jeden proprietären Barcode, z.B. MaxiCode. Das Originalbild bleibt erhalten. Erkennungshinweise werden aus geprüften lokalen Feldern/Kategorien aufgebaut; freie KI-Zusammenfassungen dürfen keine abweichenden Empfängerbehauptungen anzeigen.

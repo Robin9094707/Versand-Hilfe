@@ -102,6 +102,11 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         if (success && cameraPath.isNotBlank()) add(FileProvider.getUriForFile(context, "${context.packageName}.files", File(cameraPath)), true)
     }
+    val photoPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted && cameraPath.isNotBlank()) runCatching { camera.launch(FileProvider.getUriForFile(context, "${context.packageName}.files", File(cameraPath))) }
+            .onFailure { onMessage("Keine Kamera-App verfügbar. Bitte ein Foto auswählen.") }
+        else onMessage("Zum Fotografieren bitte die Kamera erlauben oder ein Foto auswählen.")
+    }
     LaunchedEffect(original.id) {
         val pending = parcel.attachments.filter { !it.aiAnalyzed }
         if (pending.isNotEmpty()) {
@@ -148,7 +153,9 @@ private val ParcelSaver = Saver<Parcel, String>(save = { AppJson.encodeToString(
                     OutlinedButton(onClick = {
                         val file = File(context.cacheDir, "shared/camera-${System.currentTimeMillis()}.jpg").apply { parentFile?.mkdirs(); createNewFile() }
                         cameraPath = file.path
-                        runCatching { camera.launch(FileProvider.getUriForFile(context, "${context.packageName}.files", file)) }.onFailure { onMessage("Keine Kamera-App verfügbar. Bitte ein Foto auswählen.") }
+                        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED)
+                            runCatching { camera.launch(FileProvider.getUriForFile(context, "${context.packageName}.files", file)) }.onFailure { onMessage("Keine Kamera-App verfügbar. Bitte ein Foto auswählen.") }
+                        else photoPermission.launch(android.Manifest.permission.CAMERA)
                     }, enabled = !working, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.PhotoCamera, null); Spacer(Modifier.width(6.dp)); Text("Kamera") }
                 }
             }

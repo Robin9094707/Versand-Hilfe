@@ -1,4 +1,3 @@
-@file:OptIn(androidx.camera.core.ExperimentalGetImage::class)
 package de.rj.versandhilfe
 
 import android.net.Uri
@@ -35,6 +34,8 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** Camera frames are decoded on device. Only the selected captured image enters normal intake. */
+@android.annotation.SuppressLint("MissingPermission") // Editor requests permission before showing this dialog.
+@androidx.annotation.OptIn(markerClass = [androidx.camera.core.ExperimentalGetImage::class])
 @Composable fun LiveScanner(onDismiss: () -> Unit, onCaptured: (Uri, List<String>, File) -> Unit) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current
@@ -58,7 +59,7 @@ import java.util.concurrent.atomic.AtomicBoolean
         analysis.setAnalyzer(executor) { frame ->
             val image = frame.image
             if (image == null || disposed.get() || found.get()) frame.close()
-            else scanner.process(InputImage.fromMediaImage(image, frame.imageInfo.rotationDegrees))
+            else try { scanner.process(InputImage.fromMediaImage(image, frame.imageInfo.rotationDegrees))
                 .addOnSuccessListener(main) { values ->
                     val codes = values.mapNotNull { it.rawValue }.distinct().filter { it.length <= 12000 }.take(20)
                     if (codes.isNotEmpty() && !disposed.get() && found.compareAndSet(false, true)) {
@@ -75,6 +76,7 @@ import java.util.concurrent.atomic.AtomicBoolean
                         })
                     }
                 }.addOnCompleteListener(main) { frame.close() }
+            } catch (_: Exception) { frame.close() }
         }
         future.addListener({
             if (!disposed.get()) runCatching {

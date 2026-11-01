@@ -140,7 +140,7 @@ fun applyExtraction(p: Parcel, attachment: Attachment, e: AiExtraction): Parcel 
     val carrierName = value("Anbieter", e.carrier, "")
     val carrier = Carrier.entries.firstOrNull { it.name.equals(carrierName, true) || it.label.equals(carrierName, true) } ?: Carrier.UNKNOWN
     val roleWarning = if ((e.recipient != null || e.address != null) && known == null && (!roleConfirmed || nameIsSender || addressIsSender)) "Empfänger nicht sicher erkannt. Bitte selbst bestätigen. Die Absenderadresse wurde nicht übernommen." else ""
-    val summary = listOf(e.summary, e.warning, roleWarning).filter { it.isNotBlank() }.joinToString("\n").take(2000)
+    val summary = listOf("Erkannt: ${kinds.joinToString(" + ") { it.label }}.", if (e.warning.isNotBlank()) "Nicht alle Angaben sind sicher lesbar. Bitte Empfänger, Nummer und Frist prüfen." else "", roleWarning).filter { it.isNotBlank() }.joinToString("\n").take(2000)
     return applyLocalCodes(p.copy(title = title, recipient = recipient, address = address, platform = platform, orderNumber = order,
         trackingNumber = tracking, dueDate = due, carrier = if (p.carrier == Carrier.UNKNOWN) carrier else p.carrier,
         attachments = p.attachments.map { if (it.id == attachment.id) mapped else it },
